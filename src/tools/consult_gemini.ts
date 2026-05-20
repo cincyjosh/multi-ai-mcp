@@ -1,19 +1,20 @@
 import { readFileContent } from "../utils/file_reader.js";
 import { runCli } from "../utils/run_cli.js";
+import { buildFileContext } from "../utils/prompt_builder.js";
 
 export async function consultGemini(params: {
   prompt: string;
   files?: string[];
 }): Promise<string> {
-  let prompt = params.prompt;
+  const fileContext = await buildFileContext(
+    params.files ?? [],
+    readFileContent
+  );
 
-  if (params.files && params.files.length > 0) {
-    const chunks = await Promise.all(
-      params.files.map(async (f) => `--- ${f} ---\n${await readFileContent(f)}`)
-    );
-    prompt += "\n\n" + chunks.join("\n\n");
-  }
-
-  const result = await runCli("gemini", ["-p", prompt, "-o", "text"]);
+  const result = await runCli(
+    "gemini",
+    ["-p", params.prompt, "-o", "text"],
+    fileContext ? { stdin: fileContext } : {}
+  );
   return result.trim();
 }

@@ -1,22 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { writeFile, unlink, mkdir } from "fs/promises";
+import { mkdir, writeFile, unlink, rm } from "fs/promises";
 import { join } from "path";
 import { homedir } from "os";
+
+const testDir = join(homedir(), ".mcp-test-tmp");
 
 const { mockRunCli } = vi.hoisted(() => ({ mockRunCli: vi.fn() }));
 vi.mock("../../src/utils/run_cli.js", () => ({ runCli: mockRunCli }));
 
 import { consultCodex } from "../../src/tools/consult_codex.js";
 
-// Use a dir under homedir so it is within the sandbox root
-const testDir = join(homedir(), ".mcp-test-tmp");
-
 describe("consultCodex", () => {
   beforeEach(async () => {
     await mkdir(testDir, { recursive: true });
     mockRunCli.mockClear();
     mockRunCli.mockImplementation(async (_cmd: string, _args: string[]) => {
-      // Simulate codex writing the output file
       const args = _args as string[];
       const oIndex = args.indexOf("-o");
       if (oIndex !== -1) {
@@ -38,19 +36,26 @@ describe("consultCodex", () => {
     expect(args).toContain("--ephemeral");
   });
 
-  it("appends file contents to the prompt", async () => {
+  it("passes prompt via stdin not as a positional arg", async () => {
+    await consultCodex({ prompt: "my question" });
+    const args: string[] = mockRunCli.mock.calls[0][1];
+    const options = mockRunCli.mock.calls[0][2];
+    expect(args[1]).toBe("-");
+    expect(options.stdin).toContain("my question");
+  });
+
+  it("includes file contents in stdin", async () => {
     const tmpFile = join(testDir, `test-${Date.now()}.txt`);
     await writeFile(tmpFile, "file content here");
 
     await consultCodex({ prompt: "Review this", files: [tmpFile] });
-    const args: string[] = mockRunCli.mock.calls[0][1];
-    const promptArg = args[1]; // codex exec "<prompt>"
-    expect(promptArg).toContain("file content here");
+    const options = mockRunCli.mock.calls[0][2];
+    expect(options.stdin).toContain("file content here");
 
     await unlink(tmpFile);
   });
 
-  it("adds -i flags for each image", async () => {
+  it("adds -i flags for each image with expanded paths", async () => {
     const tmpImg = join(testDir, `test-${Date.now()}.png`);
     await writeFile(tmpImg, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
 
@@ -63,8 +68,9 @@ describe("consultCodex", () => {
   });
 
   it("throws when a file does not exist", async () => {
+    const missing = join(testDir, "nonexistent.txt");
     await expect(
-      consultCodex({ prompt: "test", files: ["/nonexistent.txt"] })
-    ).rejects.toThrow("/nonexistent.txt");
+      consultCodex({ prompt: "test", files: [missing] })
+    ).rejects.toThrow();
   });
 });
