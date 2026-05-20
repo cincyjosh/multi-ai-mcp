@@ -126,8 +126,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "consult_codex": {
         const parsed = ConsultCodexSchema.safeParse(args);
         if (!parsed.success) {
+          const errorMsg = parsed.error.issues
+            .map((i) => `${i.path.join(".")}: ${i.message}`)
+            .join("; ");
           return {
-            content: [{ type: "text", text: `Invalid arguments: ${parsed.error.message}` }],
+            content: [{ type: "text", text: `Invalid arguments: ${errorMsg}` }],
             isError: true,
           };
         }
@@ -137,8 +140,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "consult_gemini": {
         const parsed = ConsultGeminiSchema.safeParse(args);
         if (!parsed.success) {
+          const errorMsg = parsed.error.issues
+            .map((i) => `${i.path.join(".")}: ${i.message}`)
+            .join("; ");
           return {
-            content: [{ type: "text", text: `Invalid arguments: ${parsed.error.message}` }],
+            content: [{ type: "text", text: `Invalid arguments: ${errorMsg}` }],
             isError: true,
           };
         }

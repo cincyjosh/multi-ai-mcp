@@ -3,7 +3,7 @@ import { mkdir, writeFile, unlink, rm } from "fs/promises";
 import { join } from "path";
 import { homedir } from "os";
 
-const testDir = join(homedir(), ".mcp-test-tmp");
+const testDir = join(process.cwd(), ".mcp-test-tmp-codex");
 
 const { mockRunCli } = vi.hoisted(() => ({ mockRunCli: vi.fn() }));
 vi.mock("../../src/utils/run_cli.js", () => ({ runCli: mockRunCli }));

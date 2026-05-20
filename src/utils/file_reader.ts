@@ -3,7 +3,7 @@ import { extname, resolve, normalize } from "path";
 import { homedir } from "os";
 
 const WORKSPACE_ROOT = normalize(
-  process.env.MCP_WORKSPACE_ROOT ?? homedir()
+  process.env.MCP_WORKSPACE_ROOT ?? process.cwd()
 );
 
 const SUPPORTED_IMAGE_TYPES: Record<string, string> = {
@@ -14,7 +14,7 @@ const SUPPORTED_IMAGE_TYPES: Record<string, string> = {
   ".gif": "image/gif",
 };
 
-async function resolvePathSafe(filePath: string): Promise<string> {
+export async function resolvePathSafe(filePath: string): Promise<string> {
   const expanded = filePath.startsWith("~/")
     ? resolve(homedir(), filePath.slice(2))
     : resolve(filePath);

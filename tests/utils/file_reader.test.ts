@@ -5,7 +5,7 @@ import { homedir } from "os";
 import { readFileContent, readImageAsBase64 } from "../../src/utils/file_reader.js";
 
 // Use a temp dir under homedir so it is within the sandbox root
-const testDir = join(homedir(), ".mcp-test-tmp");
+const testDir = join(process.cwd(), ".mcp-test-tmp-reader");
 
 describe("readFileContent", () => {
   let tmpFile: string;

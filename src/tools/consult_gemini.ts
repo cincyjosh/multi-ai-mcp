@@ -11,10 +11,14 @@ export async function consultGemini(params: {
     readFileContent
   );
 
+  const stdinContent = fileContext
+    ? `${params.prompt}\n\n${fileContext}`
+    : params.prompt;
+
   const result = await runCli(
     "gemini",
-    ["-p", params.prompt, "-o", "text"],
-    fileContext ? { stdin: fileContext } : {}
+    ["-p", "-", "-o", "text"],
+    { stdin: stdinContent }
   );
   return result.trim();
 }
