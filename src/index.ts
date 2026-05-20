@@ -4,9 +4,61 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
+import { z } from "zod";
 import { consultCodex } from "./tools/consult_codex.js";
 import { consultGemini } from "./tools/consult_gemini.js";
 
+// --- Concurrency semaphore (max 3 simultaneous CLI calls) ---
+class Semaphore {
+  private count: number;
+  private queue: Array<() => void> = [];
+
+  constructor(max: number) {
+    this.count = max;
+  }
+
+  acquire(): Promise<void> {
+    if (this.count > 0) {
+      this.count--;
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => this.queue.push(resolve));
+  }
+
+  release(): void {
+    const next = this.queue.shift();
+    if (next) {
+      next();
+    } else {
+      this.count++;
+    }
+  }
+}
+
+const semaphore = new Semaphore(3);
+
+async function withSemaphore<T>(fn: () => Promise<T>): Promise<T> {
+  await semaphore.acquire();
+  try {
+    return await fn();
+  } finally {
+    semaphore.release();
+  }
+}
+
+// --- Zod schemas for runtime validation ---
+const ConsultCodexSchema = z.object({
+  prompt: z.string().min(1),
+  files: z.array(z.string()).optional(),
+  images: z.array(z.string()).optional(),
+});
+
+const ConsultGeminiSchema = z.object({
+  prompt: z.string().min(1),
+  files: z.array(z.string()).optional(),
+});
+
+// --- Server setup ---
 const server = new Server(
   { name: "multi-ai-mcp", version: "1.0.0" },
   { capabilities: { tools: {} } }
@@ -21,7 +73,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       inputSchema: {
         type: "object",
         properties: {
-          prompt: { type: "string", description: "The question or request" },
+          prompt: {
+            type: "string",
+            minLength: 1,
+            description: "The question or request",
+          },
           files: {
             type: "array",
             items: { type: "string" },
@@ -30,10 +86,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           images: {
             type: "array",
             items: { type: "string" },
-            description: "Local image file paths (PNG/JPG) for vision input",
+            description: "Local image file paths (PNG/JPG/WEBP/GIF) for vision input",
           },
         },
         required: ["prompt"],
+        additionalProperties: false,
       },
     },
     {
@@ -43,7 +100,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       inputSchema: {
         type: "object",
         properties: {
-          prompt: { type: "string", description: "The question or request" },
+          prompt: {
+            type: "string",
+            minLength: 1,
+            description: "The question or request",
+          },
           files: {
             type: "array",
             items: { type: "string" },
@@ -51,6 +112,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           },
         },
         required: ["prompt"],
+        additionalProperties: false,
       },
     },
   ],
@@ -62,21 +124,35 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   try {
     switch (name) {
       case "consult_codex": {
-        const result = await consultCodex(
-          args as Parameters<typeof consultCodex>[0]
-        );
+        const parsed = ConsultCodexSchema.safeParse(args);
+        if (!parsed.success) {
+          return {
+            content: [{ type: "text", text: `Invalid arguments: ${parsed.error.message}` }],
+            isError: true,
+          };
+        }
+        const result = await withSemaphore(() => consultCodex(parsed.data));
         return { content: [{ type: "text", text: result }] };
       }
       case "consult_gemini": {
-        const result = await consultGemini(
-          args as Parameters<typeof consultGemini>[0]
-        );
+        const parsed = ConsultGeminiSchema.safeParse(args);
+        if (!parsed.success) {
+          return {
+            content: [{ type: "text", text: `Invalid arguments: ${parsed.error.message}` }],
+            isError: true,
+          };
+        }
+        const result = await withSemaphore(() => consultGemini(parsed.data));
         return { content: [{ type: "text", text: result }] };
       }
       default:
-        throw new Error(`Unknown tool: ${name}`);
+        return {
+          content: [{ type: "text", text: `Unknown tool: ${name}` }],
+          isError: true,
+        };
     }
   } catch (error) {
+    console.error(`[multi-ai-mcp] Tool error (${name}):`, error);
     return {
       content: [
         {
