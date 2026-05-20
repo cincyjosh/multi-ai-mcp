@@ -7,10 +7,15 @@ describe("runCli", () => {
     expect(result.trim()).toBe("hello world");
   });
 
+  it("accepts stdin and passes it to the process", async () => {
+    const result = await runCli("cat", [], { stdin: "hello from stdin" });
+    expect(result.trim()).toBe("hello from stdin");
+  });
+
   it("throws with stderr when command exits non-zero", async () => {
-    await expect(runCli("bash", ["-c", "echo 'oops' >&2; exit 1"])).rejects.toThrow(
-      "oops"
-    );
+    await expect(
+      runCli("bash", ["-c", "echo 'oops' >&2; exit 1"])
+    ).rejects.toThrow("oops");
   });
 
   it("throws when the binary does not exist", async () => {
@@ -18,8 +23,14 @@ describe("runCli", () => {
   });
 
   it("throws a timeout error when the process exceeds the timeout", async () => {
-    await expect(runCli("sleep", ["10"], { timeoutMs: 100 })).rejects.toThrow(
-      "timed out"
-    );
+    await expect(
+      runCli("sleep", ["10"], { timeoutMs: 100 })
+    ).rejects.toThrow("timed out");
+  });
+
+  it("includes signal in error when process is killed by signal", async () => {
+    await expect(
+      runCli("bash", ["-c", "kill -9 $$"])
+    ).rejects.toThrow();
   });
 });

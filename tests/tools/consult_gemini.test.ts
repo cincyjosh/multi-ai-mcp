@@ -1,15 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { writeFile, unlink } from "fs/promises";
+import { writeFile, unlink, mkdir } from "fs/promises";
 import { join } from "path";
-import { tmpdir } from "os";
+import { homedir } from "os";
 
 const { mockRunCli } = vi.hoisted(() => ({ mockRunCli: vi.fn() }));
 vi.mock("../../src/utils/run_cli.js", () => ({ runCli: mockRunCli }));
 
 import { consultGemini } from "../../src/tools/consult_gemini.js";
 
+// Use a dir under homedir so it is within the sandbox root
+const testDir = join(homedir(), ".mcp-test-tmp");
+
 describe("consultGemini", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await mkdir(testDir, { recursive: true });
     mockRunCli.mockClear();
     mockRunCli.mockResolvedValue("gemini response");
   });
@@ -29,7 +33,7 @@ describe("consultGemini", () => {
   });
 
   it("appends file contents to the prompt", async () => {
-    const tmpFile = join(tmpdir(), `test-${Date.now()}.txt`);
+    const tmpFile = join(testDir, `test-${Date.now()}.txt`);
     await writeFile(tmpFile, "gemini file content");
 
     await consultGemini({ prompt: "Review this", files: [tmpFile] });

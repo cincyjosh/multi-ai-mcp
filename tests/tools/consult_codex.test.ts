@@ -1,15 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { writeFile, unlink } from "fs/promises";
+import { writeFile, unlink, mkdir } from "fs/promises";
 import { join } from "path";
-import { tmpdir } from "os";
+import { homedir } from "os";
 
 const { mockRunCli } = vi.hoisted(() => ({ mockRunCli: vi.fn() }));
 vi.mock("../../src/utils/run_cli.js", () => ({ runCli: mockRunCli }));
 
 import { consultCodex } from "../../src/tools/consult_codex.js";
 
+// Use a dir under homedir so it is within the sandbox root
+const testDir = join(homedir(), ".mcp-test-tmp");
+
 describe("consultCodex", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await mkdir(testDir, { recursive: true });
     mockRunCli.mockClear();
     mockRunCli.mockImplementation(async (_cmd: string, _args: string[]) => {
       // Simulate codex writing the output file
@@ -35,7 +39,7 @@ describe("consultCodex", () => {
   });
 
   it("appends file contents to the prompt", async () => {
-    const tmpFile = join(tmpdir(), `test-${Date.now()}.txt`);
+    const tmpFile = join(testDir, `test-${Date.now()}.txt`);
     await writeFile(tmpFile, "file content here");
 
     await consultCodex({ prompt: "Review this", files: [tmpFile] });
@@ -47,7 +51,7 @@ describe("consultCodex", () => {
   });
 
   it("adds -i flags for each image", async () => {
-    const tmpImg = join(tmpdir(), `test-${Date.now()}.png`);
+    const tmpImg = join(testDir, `test-${Date.now()}.png`);
     await writeFile(tmpImg, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
 
     await consultCodex({ prompt: "Describe this", images: [tmpImg] });
