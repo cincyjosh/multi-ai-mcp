@@ -51,12 +51,12 @@ const ConsultCodexSchema = z.object({
   prompt: z.string().min(1),
   files: z.array(z.string()).optional(),
   images: z.array(z.string()).optional(),
-});
+}).strict();
 
 const ConsultGeminiSchema = z.object({
   prompt: z.string().min(1),
   files: z.array(z.string()).optional(),
-});
+}).strict();
 
 // --- Server setup ---
 const server = new Server(

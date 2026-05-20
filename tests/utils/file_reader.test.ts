@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { writeFile, unlink, mkdir, rm } from "fs/promises";
+import { writeFile, unlink, mkdir, rm, symlink } from "fs/promises";
 import { join } from "path";
 import { homedir } from "os";
 import { readFileContent, readImageAsBase64 } from "../../src/utils/file_reader.js";
@@ -78,5 +78,17 @@ describe("readImageAsBase64", () => {
 
   it("throws for paths outside the workspace root", async () => {
     await expect(readImageAsBase64("/etc/hosts")).rejects.toThrow("access denied");
+  });
+});
+
+describe("symlink traversal protection", () => {
+  it("rejects a symlink inside workspace pointing outside", async () => {
+    const linkPath = join(homedir(), ".mcp-test-tmp", `symlink-${Date.now()}`);
+    await symlink("/etc/hosts", linkPath);
+    try {
+      await expect(readFileContent(linkPath)).rejects.toThrow("access denied");
+    } finally {
+      await unlink(linkPath).catch(() => {});
+    }
   });
 });

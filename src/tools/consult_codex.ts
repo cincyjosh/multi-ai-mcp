@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm } from "fs/promises";
-import { join, resolve } from "path";
-import { tmpdir, homedir } from "os";
-import { readFileContent } from "../utils/file_reader.js";
+import { join } from "path";
+import { tmpdir } from "os";
+import { readFileContent, resolveAndValidatePath } from "../utils/file_reader.js";
 import { runCli } from "../utils/run_cli.js";
 import { buildFileContext } from "../utils/prompt_builder.js";
 
@@ -32,10 +32,8 @@ export async function consultCodex(params: {
     ];
 
     for (const img of params.images ?? []) {
-      const expanded = img.startsWith("~/")
-        ? join(homedir(), img.slice(2))
-        : resolve(img);
-      args.push("-i", expanded);
+      const validated = resolveAndValidatePath(img);
+      args.push("-i", validated);
     }
 
     await runCli("codex", args, { stdin: stdinContent });
