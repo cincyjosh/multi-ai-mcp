@@ -10,9 +10,9 @@ describe("buildFileContext", () => {
 
   it("formats file contents with path headers", async () => {
     const result = await buildFileContext(["/a.ts", "/b.ts"], fakeRead);
-    expect(result).toContain("--- /a.ts ---");
+    expect(result).toContain('<file path="/a.ts">');
     expect(result).toContain("content of /a.ts");
-    expect(result).toContain("--- /b.ts ---");
+    expect(result).toContain('<file path="/b.ts">');
   });
 
   it("throws when a single file exceeds MAX_FILE_BYTES", async () => {

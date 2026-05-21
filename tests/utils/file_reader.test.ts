@@ -1,10 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { writeFile, unlink, mkdir, rm, symlink } from "fs/promises";
+import { writeFile, unlink, mkdir, symlink } from "fs/promises";
 import { join } from "path";
-import { homedir } from "os";
-import { readFileContent, readImageAsBase64 } from "../../src/utils/file_reader.js";
+import { readFileContent, resolveImagePathSafe } from "../../src/utils/file_reader.js";
 
-// Use a temp dir under homedir so it is within the sandbox root
 const testDir = join(process.cwd(), ".mcp-test-tmp-reader");
 
 describe("readFileContent", () => {
@@ -35,55 +33,45 @@ describe("readFileContent", () => {
   });
 });
 
-describe("readImageAsBase64", () => {
+describe("resolveImagePathSafe", () => {
   let tmpPng: string;
-  let tmpJpg: string;
-  let missingPng: string;
+  let tmpTxt: string;
 
   beforeEach(async () => {
     await mkdir(testDir, { recursive: true });
     tmpPng = join(testDir, `test-${Date.now()}.png`);
-    tmpJpg = join(testDir, `test-${Date.now()}.jpg`);
-    missingPng = join(testDir, `missing-${Date.now()}.png`);
+    tmpTxt = join(testDir, `test-${Date.now()}.txt`);
     await writeFile(tmpPng, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
-    await writeFile(tmpJpg, Buffer.from([0xff, 0xd8, 0xff]));
+    await writeFile(tmpTxt, "not an image");
   });
 
   afterEach(async () => {
     await unlink(tmpPng).catch(() => {});
-    await unlink(tmpJpg).catch(() => {});
+    await unlink(tmpTxt).catch(() => {});
   });
 
-  it("returns base64 data and image/png for .png files", async () => {
-    const result = await readImageAsBase64(tmpPng);
-    expect(result.mimeType).toBe("image/png");
-    expect(result.data).toBe(Buffer.from([0x89, 0x50, 0x4e, 0x47]).toString("base64"));
-  });
-
-  it("returns image/jpeg for .jpg files", async () => {
-    const result = await readImageAsBase64(tmpJpg);
-    expect(result.mimeType).toBe("image/jpeg");
-  });
-
-  it("throws with the path in the error message when file is missing", async () => {
-    await expect(readImageAsBase64(missingPng)).rejects.toThrow(missingPng);
+  it("returns the resolved path for a supported image type", async () => {
+    const result = await resolveImagePathSafe(tmpPng);
+    expect(result).toBe(tmpPng);
   });
 
   it("throws for unsupported image types", async () => {
-    const tmpTxt = join(testDir, `test-${Date.now()}.txt`);
-    await writeFile(tmpTxt, "not an image");
-    await expect(readImageAsBase64(tmpTxt)).rejects.toThrow("Unsupported image type");
-    await unlink(tmpTxt);
+    await expect(resolveImagePathSafe(tmpTxt)).rejects.toThrow(
+      "Unsupported image type"
+    );
   });
 
   it("throws for paths outside the workspace root", async () => {
-    await expect(readImageAsBase64("/etc/hosts")).rejects.toThrow("access denied");
+    await expect(resolveImagePathSafe("/etc/hosts")).rejects.toThrow(
+      "access denied"
+    );
   });
 });
 
 describe("symlink traversal protection", () => {
   it("rejects a symlink inside workspace pointing outside", async () => {
-    const linkPath = join(homedir(), ".mcp-test-tmp", `symlink-${Date.now()}`);
+    await mkdir(testDir, { recursive: true });
+    const linkPath = join(testDir, `symlink-${Date.now()}`);
     await symlink("/etc/hosts", linkPath);
     try {
       await expect(readFileContent(linkPath)).rejects.toThrow("access denied");

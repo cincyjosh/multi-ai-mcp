@@ -1,4 +1,5 @@
-const MAX_FILE_BYTES = 100_000;
+import { MAX_FILE_BYTES } from "./file_reader.js";
+
 const MAX_TOTAL_BYTES = 500_000;
 
 export async function buildFileContext(
@@ -7,20 +8,37 @@ export async function buildFileContext(
 ): Promise<string> {
   if (files.length === 0) return "";
 
+  const contents = await Promise.all(files.map((f) => readFile(f)));
+
   let totalBytes = 0;
   const chunks: string[] = [];
 
-  for (const f of files) {
-    const content = await readFile(f);
-    const bytes = Buffer.byteLength(content, "utf-8");
-    if (bytes > MAX_FILE_BYTES) {
-      throw new Error(`File too large (${bytes} bytes, max ${MAX_FILE_BYTES}): ${f}`);
+  for (let i = 0; i < files.length; i++) {
+    const content = contents[i];
+    const contentBytes = Buffer.byteLength(content, "utf-8");
+    if (contentBytes > MAX_FILE_BYTES) {
+      throw new Error(
+        `File too large (${contentBytes} bytes, max ${MAX_FILE_BYTES}): ${files[i]}`
+      );
     }
-    totalBytes += bytes;
+    // Use a distinctive tag-style delimiter that is very unlikely to appear
+    // organically in file content, making section-spoofing harder.
+    // Newlines and XML attribute-special characters are escaped so a crafted
+    // filename can't break out of the path="" attribute or inject new tags.
+    const safeName = files[i]
+      .replace(/[\r\n]/g, " ")
+      .replace(/&/g, "&amp;")
+      .replace(/"/g, "&quot;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+    const chunk = `<file path="${safeName}">\n${content}\n</file>`;
+    totalBytes += Buffer.byteLength(chunk, "utf-8");
     if (totalBytes > MAX_TOTAL_BYTES) {
-      throw new Error(`Total file context exceeds limit of ${MAX_TOTAL_BYTES} bytes`);
+      throw new Error(
+        `Total file context exceeds limit of ${MAX_TOTAL_BYTES} bytes`
+      );
     }
-    chunks.push(`--- ${f} ---\n${content}`);
+    chunks.push(chunk);
   }
 
   return chunks.join("\n\n");

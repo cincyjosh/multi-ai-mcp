@@ -8,19 +8,24 @@ import { z } from "zod";
 import { consultCodex } from "./tools/consult_codex.js";
 import { consultGemini } from "./tools/consult_gemini.js";
 
-// --- Concurrency semaphore (max 3 simultaneous CLI calls) ---
+// --- Concurrency semaphore (max 3 simultaneous CLI calls, max 10 queued) ---
 class Semaphore {
   private count: number;
   private queue: Array<() => void> = [];
+  private readonly maxQueue: number;
 
-  constructor(max: number) {
+  constructor(max: number, maxQueue = 10) {
     this.count = max;
+    this.maxQueue = maxQueue;
   }
 
   acquire(): Promise<void> {
     if (this.count > 0) {
       this.count--;
       return Promise.resolve();
+    }
+    if (this.queue.length >= this.maxQueue) {
+      return Promise.reject(new Error("Server busy: too many pending requests"));
     }
     return new Promise((resolve) => this.queue.push(resolve));
   }
@@ -46,16 +51,44 @@ async function withSemaphore<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
+// Per-session mutex: prevents two concurrent requests for the same sessionId
+// from mutating the same underlying CLI conversation simultaneously.
+const sessionLocks = new Map<string, Promise<void>>();
+
+async function withSessionLock<T>(
+  sessionId: string | undefined,
+  fn: () => Promise<T>
+): Promise<T> {
+  if (!sessionId) return fn();
+  const prev = sessionLocks.get(sessionId) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((r) => { release = r; });
+  const chained = prev.then(() => current, () => current);
+  sessionLocks.set(sessionId, chained);
+  await prev.catch(() => {});
+  try {
+    return await fn();
+  } finally {
+    release();
+    // Remove the entry only if no newer waiter has replaced it
+    if (sessionLocks.get(sessionId) === chained) {
+      sessionLocks.delete(sessionId);
+    }
+  }
+}
+
 // --- Zod schemas for runtime validation ---
 const ConsultCodexSchema = z.object({
-  prompt: z.string().min(1),
-  files: z.array(z.string()).optional(),
-  images: z.array(z.string()).optional(),
+  prompt: z.string().min(1).max(100_000),
+  files: z.array(z.string().min(1).max(4096)).max(20).optional(),
+  images: z.array(z.string().min(1).max(4096)).max(10).optional(),
+  sessionId: z.string().uuid().optional(),
 }).strict();
 
 const ConsultGeminiSchema = z.object({
-  prompt: z.string().min(1),
-  files: z.array(z.string()).optional(),
+  prompt: z.string().min(1).max(100_000),
+  files: z.array(z.string().min(1).max(4096)).max(20).optional(),
+  sessionId: z.string().uuid().optional(),
 }).strict();
 
 // --- Server setup ---
@@ -69,24 +102,32 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "consult_codex",
       description:
-        "Send a prompt to OpenAI Codex and get a text response. Optionally attach local files as context or images for vision input.",
+        "Send a prompt to OpenAI Codex and get a text response. Optionally attach local files as context or images for vision input. Pass sessionId to continue a previous conversation; omit it for a stateless one-shot call. The response includes a [Session ID: ...] footer when a session is active — pass that UUID back as sessionId on the next call to continue the conversation.",
       inputSchema: {
         type: "object",
         properties: {
           prompt: {
             type: "string",
             minLength: 1,
+            maxLength: 100_000,
             description: "The question or request",
           },
           files: {
             type: "array",
-            items: { type: "string" },
+            items: { type: "string", minLength: 1, maxLength: 4096 },
+            maxItems: 20,
             description: "Local file paths to include as text context",
           },
           images: {
             type: "array",
-            items: { type: "string" },
+            items: { type: "string", minLength: 1, maxLength: 4096 },
+            maxItems: 10,
             description: "Local image file paths (PNG/JPG/WEBP/GIF) for vision input",
+          },
+          sessionId: {
+            type: "string",
+            format: "uuid",
+            description: "UUID to identify a conversation. Reuse across calls to maintain context; omit or use a new UUID to start fresh.",
           },
         },
         required: ["prompt"],
@@ -96,19 +137,26 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "consult_gemini",
       description:
-        "Send a prompt to Google Gemini and get a text response. Optionally attach local files as context.",
+        "Send a prompt to Google Gemini and get a text response. Optionally attach local files as context. Pass sessionId to continue a previous conversation; omit it for a stateless one-shot call. The response includes a [Session ID: ...] footer when a session is active — pass that UUID back as sessionId on the next call to continue the conversation.",
       inputSchema: {
         type: "object",
         properties: {
           prompt: {
             type: "string",
             minLength: 1,
+            maxLength: 100_000,
             description: "The question or request",
           },
           files: {
             type: "array",
-            items: { type: "string" },
+            items: { type: "string", minLength: 1, maxLength: 4096 },
+            maxItems: 20,
             description: "Local file paths to include as text context",
+          },
+          sessionId: {
+            type: "string",
+            format: "uuid",
+            description: "UUID to identify a conversation. Reuse across calls to maintain context; omit or use a new UUID to start fresh.",
           },
         },
         required: ["prompt"],
@@ -134,8 +182,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             isError: true,
           };
         }
-        const result = await withSemaphore(() => consultCodex(parsed.data));
-        return { content: [{ type: "text", text: result }] };
+        const result = await withSemaphore(
+          () => withSessionLock(parsed.data.sessionId, () => consultCodex(parsed.data))
+        );
+        const codexText = result.sessionId
+          ? `${result.response}\n\n[Session ID: ${result.sessionId}]`
+          : result.response;
+        return { content: [{ type: "text", text: codexText }] };
       }
       case "consult_gemini": {
         const parsed = ConsultGeminiSchema.safeParse(args);
@@ -148,8 +201,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             isError: true,
           };
         }
-        const result = await withSemaphore(() => consultGemini(parsed.data));
-        return { content: [{ type: "text", text: result }] };
+        const result = await withSemaphore(
+          () => withSessionLock(parsed.data.sessionId, () => consultGemini(parsed.data))
+        );
+        const geminiText = result.sessionId
+          ? `${result.response}\n\n[Session ID: ${result.sessionId}]`
+          : result.response;
+        return { content: [{ type: "text", text: geminiText }] };
       }
       default:
         return {
@@ -172,4 +230,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 });
 
 const transport = new StdioServerTransport();
-await server.connect(transport);
+await server.connect(transport).catch((err) => {
+  console.error("[multi-ai-mcp] Failed to start server:", err);
+  process.exit(1);
+});

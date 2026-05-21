@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mkdir, writeFile, unlink } from "fs/promises";
 import { join } from "path";
-import { homedir } from "os";
 
 const testDir = join(process.cwd(), ".mcp-test-tmp-gemini");
 
@@ -19,7 +18,12 @@ describe("consultGemini", () => {
 
   it("returns stdout as the response", async () => {
     const result = await consultGemini({ prompt: "Hello" });
-    expect(result).toBe("gemini response");
+    expect(result.response).toBe("gemini response");
+  });
+
+  it("returns empty sessionId when no session requested", async () => {
+    const result = await consultGemini({ prompt: "Hello" });
+    expect(result.sessionId).toBe("");
   });
 
   it("calls gemini with -p -, and passes the prompt via stdin", async () => {
@@ -54,5 +58,37 @@ describe("consultGemini", () => {
     await expect(
       consultGemini({ prompt: "test", files: [missing] })
     ).rejects.toThrow();
+  });
+
+  it("uses --session-id on the first call for a new session", async () => {
+    const sessionId = "44444444-4444-4444-4444-444444444444";
+    await consultGemini({ prompt: "Hello", sessionId });
+    const args: string[] = mockRunCli.mock.calls[0][1];
+    expect(args).toContain("--session-id");
+    expect(args).not.toContain("--resume");
+    expect(args[args.indexOf("--session-id") + 1]).toBe(sessionId);
+  });
+
+  it("uses --resume on subsequent calls for the same session", async () => {
+    const sessionId = "55555555-5555-5555-5555-555555555555";
+    await consultGemini({ prompt: "First", sessionId });
+    await consultGemini({ prompt: "Second", sessionId });
+    const args: string[] = mockRunCli.mock.calls[1][1];
+    expect(args).toContain("--resume");
+    expect(args).not.toContain("--session-id");
+    expect(args[args.indexOf("--resume") + 1]).toBe(sessionId);
+  });
+
+  it("returns the sessionId when a session is active", async () => {
+    const sessionId = "66666666-6666-6666-6666-666666666666";
+    const result = await consultGemini({ prompt: "Hello", sessionId });
+    expect(result.sessionId).toBe(sessionId);
+  });
+
+  it("does not pass --session-id or --resume when sessionId is omitted", async () => {
+    await consultGemini({ prompt: "Hello" });
+    const args: string[] = mockRunCli.mock.calls[0][1];
+    expect(args).not.toContain("--session-id");
+    expect(args).not.toContain("--resume");
   });
 });
