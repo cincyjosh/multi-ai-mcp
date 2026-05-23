@@ -2,7 +2,6 @@ import { mkdtemp, open, readFile, rm, stat, writeFile, constants } from "fs/prom
 import { extname, join } from "path";
 import { tmpdir, homedir } from "os";
 import {
-  readFileContent,
   resolveImagePathSafe,
   MAX_IMAGE_BYTES,
   O_NOFOLLOW,
@@ -136,10 +135,7 @@ export async function consultCodex(params: {
   images?: string[];
   sessionId?: string;
 }): Promise<{ response: string; sessionId: string }> {
-  const fileContext = await buildFileContext(
-    params.files ?? [],
-    readFileContent
-  );
+  const fileContext = await buildFileContext(params.files ?? []);
   const stdinContent = fileContext
     ? `${params.prompt}\n\n${fileContext}`
     : params.prompt;

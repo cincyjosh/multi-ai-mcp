@@ -1,4 +1,3 @@
-import { readFileContent } from "../utils/file_reader.js";
 import { runCli, RunCliOptions } from "../utils/run_cli.js";
 import { buildFileContext } from "../utils/prompt_builder.js";
 
@@ -48,10 +47,7 @@ export async function consultGemini(params: {
   files?: string[];
   sessionId?: string;
 }): Promise<{ response: string; sessionId: string }> {
-  const fileContext = await buildFileContext(
-    params.files ?? [],
-    readFileContent
-  );
+  const fileContext = await buildFileContext(params.files ?? []);
 
   const stdinContent = fileContext
     ? `${params.prompt}\n\n${fileContext}`

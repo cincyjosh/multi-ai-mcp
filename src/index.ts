@@ -77,6 +77,15 @@ async function withSessionLock<T>(
   }
 }
 
+// --- CLI flags ---
+const disableCodex = process.argv.includes("--disable-codex");
+const disableGemini = process.argv.includes("--disable-gemini");
+
+if (disableCodex && disableGemini) {
+  console.error("[multi-ai-mcp] Both tools disabled — nothing to serve. Exiting.");
+  process.exit(1);
+}
+
 // --- Zod schemas for runtime validation ---
 const ConsultCodexSchema = z.object({
   prompt: z.string().min(1).max(100_000),
@@ -97,72 +106,43 @@ const server = new Server(
   { capabilities: { tools: {} } }
 );
 
+const codexToolDef = {
+  name: "consult_codex",
+  description:
+    "Send a prompt to OpenAI Codex and get a text response. Optionally attach local files as context or images for vision input. Pass sessionId to continue a previous conversation; omit it for a stateless one-shot call. The response includes a [Session ID: ...] footer when a session is active — pass that UUID back as sessionId on the next call to continue the conversation.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      prompt: { type: "string", minLength: 1, maxLength: 100_000, description: "The question or request" },
+      files: { type: "array", items: { type: "string", minLength: 1, maxLength: 4096 }, maxItems: 20, description: "Local file paths to include as text context" },
+      images: { type: "array", items: { type: "string", minLength: 1, maxLength: 4096 }, maxItems: 10, description: "Local image file paths (PNG/JPG/WEBP/GIF) for vision input" },
+      sessionId: { type: "string", format: "uuid", description: "UUID to identify a conversation. Reuse across calls to maintain context; omit or use a new UUID to start fresh." },
+    },
+    required: ["prompt"],
+    additionalProperties: false,
+  },
+};
+
+const geminiToolDef = {
+  name: "consult_gemini",
+  description:
+    "Send a prompt to Google Gemini and get a text response. Optionally attach local files as context. Pass sessionId to continue a previous conversation; omit it for a stateless one-shot call. The response includes a [Session ID: ...] footer when a session is active — pass that UUID back as sessionId on the next call to continue the conversation.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      prompt: { type: "string", minLength: 1, maxLength: 100_000, description: "The question or request" },
+      files: { type: "array", items: { type: "string", minLength: 1, maxLength: 4096 }, maxItems: 20, description: "Local file paths to include as text context" },
+      sessionId: { type: "string", format: "uuid", description: "UUID to identify a conversation. Reuse across calls to maintain context; omit or use a new UUID to start fresh." },
+    },
+    required: ["prompt"],
+    additionalProperties: false,
+  },
+};
+
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
   tools: [
-    {
-      name: "consult_codex",
-      description:
-        "Send a prompt to OpenAI Codex and get a text response. Optionally attach local files as context or images for vision input. Pass sessionId to continue a previous conversation; omit it for a stateless one-shot call. The response includes a [Session ID: ...] footer when a session is active — pass that UUID back as sessionId on the next call to continue the conversation.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          prompt: {
-            type: "string",
-            minLength: 1,
-            maxLength: 100_000,
-            description: "The question or request",
-          },
-          files: {
-            type: "array",
-            items: { type: "string", minLength: 1, maxLength: 4096 },
-            maxItems: 20,
-            description: "Local file paths to include as text context",
-          },
-          images: {
-            type: "array",
-            items: { type: "string", minLength: 1, maxLength: 4096 },
-            maxItems: 10,
-            description: "Local image file paths (PNG/JPG/WEBP/GIF) for vision input",
-          },
-          sessionId: {
-            type: "string",
-            format: "uuid",
-            description: "UUID to identify a conversation. Reuse across calls to maintain context; omit or use a new UUID to start fresh.",
-          },
-        },
-        required: ["prompt"],
-        additionalProperties: false,
-      },
-    },
-    {
-      name: "consult_gemini",
-      description:
-        "Send a prompt to Google Gemini and get a text response. Optionally attach local files as context. Pass sessionId to continue a previous conversation; omit it for a stateless one-shot call. The response includes a [Session ID: ...] footer when a session is active — pass that UUID back as sessionId on the next call to continue the conversation.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          prompt: {
-            type: "string",
-            minLength: 1,
-            maxLength: 100_000,
-            description: "The question or request",
-          },
-          files: {
-            type: "array",
-            items: { type: "string", minLength: 1, maxLength: 4096 },
-            maxItems: 20,
-            description: "Local file paths to include as text context",
-          },
-          sessionId: {
-            type: "string",
-            format: "uuid",
-            description: "UUID to identify a conversation. Reuse across calls to maintain context; omit or use a new UUID to start fresh.",
-          },
-        },
-        required: ["prompt"],
-        additionalProperties: false,
-      },
-    },
+    ...(!disableCodex ? [codexToolDef] : []),
+    ...(!disableGemini ? [geminiToolDef] : []),
   ],
 }));
 
@@ -172,6 +152,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   try {
     switch (name) {
       case "consult_codex": {
+        if (disableCodex) {
+          return { content: [{ type: "text", text: "consult_codex is disabled" }], isError: true };
+        }
         const parsed = ConsultCodexSchema.safeParse(args);
         if (!parsed.success) {
           const errorMsg = parsed.error.issues
@@ -191,6 +174,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return { content: [{ type: "text", text: codexText }] };
       }
       case "consult_gemini": {
+        if (disableGemini) {
+          return { content: [{ type: "text", text: "consult_gemini is disabled" }], isError: true };
+        }
         const parsed = ConsultGeminiSchema.safeParse(args);
         if (!parsed.success) {
           const errorMsg = parsed.error.issues

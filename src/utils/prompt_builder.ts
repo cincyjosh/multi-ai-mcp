@@ -1,14 +1,11 @@
-import { MAX_FILE_BYTES } from "./file_reader.js";
+import { readFileContent, MAX_FILE_BYTES } from "./file_reader.js";
 
 const MAX_TOTAL_BYTES = 500_000;
 
-export async function buildFileContext(
-  files: string[],
-  readFile: (path: string) => Promise<string>
-): Promise<string> {
+export async function buildFileContext(files: string[]): Promise<string> {
   if (files.length === 0) return "";
 
-  const contents = await Promise.all(files.map((f) => readFile(f)));
+  const contents = await Promise.all(files.map((f) => readFileContent(f)));
 
   let totalBytes = 0;
   const chunks: string[] = [];
