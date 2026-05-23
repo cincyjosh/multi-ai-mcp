@@ -85,6 +85,14 @@ describe("consultGemini", () => {
     expect(result.sessionId).toBe(sessionId);
   });
 
+  it("passes --include-directories when directory is provided", async () => {
+    await consultGemini({ prompt: "Review this repo", directory: testDir });
+    const args: string[] = mockRunCli.mock.calls[0][1];
+    const idx = args.indexOf("--include-directories");
+    expect(idx).toBeGreaterThan(-1);
+    expect(args[idx + 1]).toBe(testDir);
+  });
+
   it("does not pass --session-id or --resume when sessionId is omitted", async () => {
     await consultGemini({ prompt: "Hello" });
     const args: string[] = mockRunCli.mock.calls[0][1];

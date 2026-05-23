@@ -88,6 +88,20 @@ export async function resolveImagePathSafe(filePath: string): Promise<string> {
   return resolved;
 }
 
+export async function resolveDirectorySafe(dirPath: string): Promise<string> {
+  const resolved = await resolvePathSafe(dirPath);
+  let info: Awaited<ReturnType<typeof stat>>;
+  try {
+    info = await stat(resolved);
+  } catch (err: any) {
+    throw new Error(`Cannot access directory (${err.code ?? "unknown"}): ${dirPath}`);
+  }
+  if (!info.isDirectory()) {
+    throw new Error(`Not a directory: ${dirPath}`);
+  }
+  return resolved;
+}
+
 export async function readFileContent(filePath: string): Promise<string> {
   const resolved = await resolvePathSafe(filePath);
   let fd: Awaited<ReturnType<typeof open>>;

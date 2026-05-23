@@ -2,6 +2,7 @@ import { mkdtemp, open, readFile, rm, stat, writeFile, constants } from "fs/prom
 import { extname, join } from "path";
 import { tmpdir, homedir } from "os";
 import {
+  resolveDirectorySafe,
   resolveImagePathSafe,
   MAX_IMAGE_BYTES,
   O_NOFOLLOW,
@@ -133,6 +134,7 @@ export async function consultCodex(params: {
   prompt: string;
   files?: string[];
   images?: string[];
+  directory?: string;
   sessionId?: string;
 }): Promise<{ response: string; sessionId: string }> {
   const fileContext = await buildFileContext(params.files ?? []);
@@ -146,6 +148,13 @@ export async function consultCodex(params: {
   try {
     const bin = process.env.CODEX_BIN ?? "codex";
     let returnedSessionId = "";
+
+    // Build directory args (shared between all paths)
+    const dirArgs: string[] = [];
+    if (params.directory) {
+      const validatedDir = await resolveDirectorySafe(params.directory);
+      dirArgs.push("-C", validatedDir);
+    }
 
     // Build image args (shared between all paths)
     const imageArgs: string[] = [];
@@ -177,6 +186,7 @@ export async function consultCodex(params: {
         const args = [
           "exec", "resume", existingCodexId, "-",
           "--skip-git-repo-check",
+          ...dirArgs,
           "-o", outputFile,
           ...imageArgs,
         ];
@@ -188,6 +198,7 @@ export async function consultCodex(params: {
         const args = [
           "exec", "-",
           "--skip-git-repo-check",
+          ...dirArgs,
           "-o", outputFile,
           ...imageArgs,
         ];
@@ -201,6 +212,7 @@ export async function consultCodex(params: {
         "exec", "-",
         "--skip-git-repo-check",
         "--ephemeral",
+        ...dirArgs,
         "-o", outputFile,
         ...imageArgs,
       ];

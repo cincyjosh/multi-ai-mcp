@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { writeFile, unlink, mkdir, symlink } from "fs/promises";
 import { join } from "path";
-import { readFileContent, resolveImagePathSafe } from "../../src/utils/file_reader.js";
+import { readFileContent, resolveDirectorySafe, resolveImagePathSafe } from "../../src/utils/file_reader.js";
 
 const testDir = join(process.cwd(), ".mcp-test-tmp-reader");
 
@@ -65,6 +65,34 @@ describe("resolveImagePathSafe", () => {
     await expect(resolveImagePathSafe("/etc/hosts")).rejects.toThrow(
       "access denied"
     );
+  });
+});
+
+describe("resolveDirectorySafe", () => {
+  it("resolves a valid directory within the workspace", async () => {
+    await mkdir(testDir, { recursive: true });
+    const result = await resolveDirectorySafe(testDir);
+    expect(result).toBe(testDir);
+  });
+
+  it("throws for paths outside the workspace root", async () => {
+    await expect(resolveDirectorySafe("/etc")).rejects.toThrow("access denied");
+  });
+
+  it("throws when the path is a file, not a directory", async () => {
+    await mkdir(testDir, { recursive: true });
+    const tmpFile = join(testDir, `test-${Date.now()}.txt`);
+    await writeFile(tmpFile, "hello");
+    try {
+      await expect(resolveDirectorySafe(tmpFile)).rejects.toThrow("Not a directory");
+    } finally {
+      await unlink(tmpFile).catch(() => {});
+    }
+  });
+
+  it("throws for a non-existent path", async () => {
+    const missing = join(testDir, "no-such-dir");
+    await expect(resolveDirectorySafe(missing)).rejects.toThrow();
   });
 });
 

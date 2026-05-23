@@ -91,12 +91,14 @@ const ConsultCodexSchema = z.object({
   prompt: z.string().min(1).max(100_000),
   files: z.array(z.string().min(1).max(4096)).max(20).optional(),
   images: z.array(z.string().min(1).max(4096)).max(10).optional(),
+  directory: z.string().min(1).max(4096).optional(),
   sessionId: z.string().uuid().optional(),
 }).strict();
 
 const ConsultGeminiSchema = z.object({
   prompt: z.string().min(1).max(100_000),
   files: z.array(z.string().min(1).max(4096)).max(20).optional(),
+  directory: z.string().min(1).max(4096).optional(),
   sessionId: z.string().uuid().optional(),
 }).strict();
 
@@ -116,6 +118,7 @@ const codexToolDef = {
       prompt: { type: "string", minLength: 1, maxLength: 100_000, description: "The question or request" },
       files: { type: "array", items: { type: "string", minLength: 1, maxLength: 4096 }, maxItems: 20, description: "Local file paths to include as text context" },
       images: { type: "array", items: { type: "string", minLength: 1, maxLength: 4096 }, maxItems: 10, description: "Local image file paths (PNG/JPG/WEBP/GIF) for vision input" },
+      directory: { type: "string", minLength: 1, maxLength: 4096, description: "Local directory path to pass as the agent working root (e.g. a repo to review). The agent browses the directory itself — no file size limits apply." },
       sessionId: { type: "string", format: "uuid", description: "UUID to identify a conversation. Reuse across calls to maintain context; omit or use a new UUID to start fresh." },
     },
     required: ["prompt"],
@@ -132,6 +135,7 @@ const geminiToolDef = {
     properties: {
       prompt: { type: "string", minLength: 1, maxLength: 100_000, description: "The question or request" },
       files: { type: "array", items: { type: "string", minLength: 1, maxLength: 4096 }, maxItems: 20, description: "Local file paths to include as text context" },
+      directory: { type: "string", minLength: 1, maxLength: 4096, description: "Local directory path to include in the workspace context (e.g. a repo to review). The agent browses the directory itself — no file size limits apply." },
       sessionId: { type: "string", format: "uuid", description: "UUID to identify a conversation. Reuse across calls to maintain context; omit or use a new UUID to start fresh." },
     },
     required: ["prompt"],

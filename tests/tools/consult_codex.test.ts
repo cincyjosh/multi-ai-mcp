@@ -115,6 +115,14 @@ describe("consultCodex", () => {
     expect(result.sessionId).toBe(sessionId);
   });
 
+  it("passes -C when directory is provided", async () => {
+    await consultCodex({ prompt: "Review this repo", directory: testDir });
+    const args: string[] = mockRunCli.mock.calls[0][1];
+    const cIndex = args.indexOf("-C");
+    expect(cIndex).toBeGreaterThan(-1);
+    expect(args[cIndex + 1]).toBe(testDir);
+  });
+
   it("uses exec resume on a subsequent call with the same sessionId", async () => {
     const sessionId = "33333333-3333-3333-3333-333333333333";
     // First call: establish the session

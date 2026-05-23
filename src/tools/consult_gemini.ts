@@ -1,3 +1,4 @@
+import { resolveDirectorySafe } from "../utils/file_reader.js";
 import { runCli, RunCliOptions } from "../utils/run_cli.js";
 import { buildFileContext } from "../utils/prompt_builder.js";
 
@@ -45,6 +46,7 @@ async function runGeminiWithSession(
 export async function consultGemini(params: {
   prompt: string;
   files?: string[];
+  directory?: string;
   sessionId?: string;
 }): Promise<{ response: string; sessionId: string }> {
   const fileContext = await buildFileContext(params.files ?? []);
@@ -54,7 +56,12 @@ export async function consultGemini(params: {
     : params.prompt;
 
   const bin = process.env.GEMINI_BIN ?? "gemini";
-  const baseArgs = ["-p", "-", "-o", "text"];
+  const dirArgs: string[] = [];
+  if (params.directory) {
+    const validatedDir = await resolveDirectorySafe(params.directory);
+    dirArgs.push("--include-directories", validatedDir);
+  }
+  const baseArgs = ["-p", "-", "-o", "text", ...dirArgs];
 
   let raw: string;
   if (params.sessionId) {
