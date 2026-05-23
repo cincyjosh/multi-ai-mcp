@@ -150,8 +150,29 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
   ],
 }));
 
+const PROGRESS_INTERVAL_MS = 15_000;
+
+function startProgressPing(
+  progressToken: string | number | undefined,
+  sendNotification: (n: { method: string; params: object }) => Promise<void>
+): ReturnType<typeof setInterval> | undefined {
+  if (progressToken == null) return undefined;
+  const startedAt = Date.now();
+  let inFlight = false;
+  return setInterval(() => {
+    if (inFlight) return;
+    const elapsed = Math.round((Date.now() - startedAt) / 1000);
+    inFlight = true;
+    sendNotification({
+      method: "notifications/progress",
+      params: { progressToken, progress: elapsed, message: `Still processing… (${elapsed}s)` },
+    }).catch(() => {}).finally(() => { inFlight = false; });
+  }, PROGRESS_INTERVAL_MS);
+}
+
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
+  const progressToken = request.params._meta?.progressToken;
 
   try {
     switch (name) {
@@ -169,9 +190,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             isError: true,
           };
         }
-        const result = await withSemaphore(
-          () => withSessionLock(parsed.data.sessionId, () => consultCodex(parsed.data))
-        );
+        const result = await withSemaphore(async () => {
+          const ping = startProgressPing(progressToken, (n) => server.notification(n as any));
+          try {
+            return await withSessionLock(parsed.data.sessionId, () => consultCodex(parsed.data));
+          } finally {
+            clearInterval(ping);
+          }
+        });
         const codexText = result.sessionId
           ? `${result.response}\n\n[Session ID: ${result.sessionId}]`
           : result.response;
@@ -191,9 +217,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             isError: true,
           };
         }
-        const result = await withSemaphore(
-          () => withSessionLock(parsed.data.sessionId, () => consultGemini(parsed.data))
-        );
+        const result = await withSemaphore(async () => {
+          const ping = startProgressPing(progressToken, (n) => server.notification(n as any));
+          try {
+            return await withSessionLock(parsed.data.sessionId, () => consultGemini(parsed.data));
+          } finally {
+            clearInterval(ping);
+          }
+        });
         const geminiText = result.sessionId
           ? `${result.response}\n\n[Session ID: ${result.sessionId}]`
           : result.response;

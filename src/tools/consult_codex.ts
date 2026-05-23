@@ -94,7 +94,7 @@ let _creationMutex = Promise.resolve();
 async function discoverNewCodexSessionId(
   bin: string,
   execArgs: string[],
-  opts: { stdin: string }
+  opts: { stdin: string; timeoutMs?: number }
 ): Promise<string> {
   let discoveredId: string | undefined;
 
@@ -109,7 +109,7 @@ async function discoverNewCodexSessionId(
     await prevMutex.catch(() => {}); // wait; ignore previous error
 
     const beforeOffset = await getSessionIndexOffset();
-    await runCli(bin, execArgs, opts);
+    await runCli(bin, execArgs, { stdin: opts.stdin, timeoutMs: opts.timeoutMs });
     const newIds = await readNewSessionIds(beforeOffset);
 
     if (newIds.length === 1) {
@@ -178,6 +178,8 @@ export async function consultCodex(params: {
       }
     }
 
+    const timeoutMs = params.directory ? 600_000 : 300_000;
+
     if (params.sessionId) {
       const existingCodexId = codexSessions.get(params.sessionId);
 
@@ -190,7 +192,7 @@ export async function consultCodex(params: {
           "-o", outputFile,
           ...imageArgs,
         ];
-        await runCli(bin, args, { stdin: stdinContent });
+        await runCli(bin, args, { stdin: stdinContent, timeoutMs });
         returnedSessionId = params.sessionId;
       } else {
         // New named session: run without --ephemeral, discover session ID via
@@ -202,7 +204,7 @@ export async function consultCodex(params: {
           "-o", outputFile,
           ...imageArgs,
         ];
-        const codexId = await discoverNewCodexSessionId(bin, args, { stdin: stdinContent });
+        const codexId = await discoverNewCodexSessionId(bin, args, { stdin: stdinContent, timeoutMs });
         storeSession(params.sessionId, codexId);
         returnedSessionId = params.sessionId;
       }
@@ -216,7 +218,7 @@ export async function consultCodex(params: {
         "-o", outputFile,
         ...imageArgs,
       ];
-      await runCli(bin, args, { stdin: stdinContent });
+      await runCli(bin, args, { stdin: stdinContent, timeoutMs });
     }
 
     let fileSize: number;

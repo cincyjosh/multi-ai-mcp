@@ -63,11 +63,13 @@ export async function consultGemini(params: {
   }
   const baseArgs = ["-p", "-", "-o", "text", ...dirArgs];
 
+  const timeoutMs = params.directory ? 600_000 : 300_000;
+
   let raw: string;
   if (params.sessionId) {
-    raw = await runGeminiWithSession(bin, baseArgs, params.sessionId, { stdin: stdinContent });
+    raw = await runGeminiWithSession(bin, baseArgs, params.sessionId, { stdin: stdinContent, timeoutMs });
   } else {
-    raw = await runCli(bin, baseArgs, { stdin: stdinContent });
+    raw = await runCli(bin, baseArgs, { stdin: stdinContent, timeoutMs });
   }
 
   return { response: raw.trim(), sessionId: params.sessionId ?? "" };

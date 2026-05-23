@@ -33,4 +33,5 @@ describe("runCli", () => {
       runCli("bash", ["-c", "kill -9 $$"])
     ).rejects.toThrow();
   });
+
 });
