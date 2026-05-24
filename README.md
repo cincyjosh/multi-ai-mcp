@@ -14,7 +14,6 @@ All tools validate inputs with Zod. File and image paths are resolved through th
 
 - Node.js 22 or newer.
 - Local CLI authentication for any enabled tool: `codex`, `gemini`, and/or `claude`.
-- `rg` is recommended because downstream CLIs may use it for repository search.
 
 ## Setup
 
@@ -53,12 +52,25 @@ node dist/index.js --disable-claude
 
 The server exits if all three tools are disabled.
 
-## Codex MCP Registration
+## MCP Client Registration
 
-This repository is currently useful from Codex with Codex disabled, so Codex can consult Gemini and Claude without recursively calling itself:
+Register the compiled stdio server with any MCP client:
 
 ```bash
+node /absolute/path/to/ai_mcp/dist/index.js
+```
+
+When registering this server inside one of the same AI CLIs it exposes, disable that matching tool to avoid recursive calls:
+
+```bash
+# From Codex: expose Gemini and Claude.
 codex mcp add multi-ai-mcp -- node /absolute/path/to/ai_mcp/dist/index.js --disable-codex
+
+# From Claude Code: expose Codex and Gemini.
+claude mcp add multi-ai-mcp -- node /absolute/path/to/ai_mcp/dist/index.js --disable-claude
+
+# From Gemini: expose Codex and Claude.
+gemini mcp add multi-ai-mcp node /absolute/path/to/ai_mcp/dist/index.js --disable-gemini
 ```
 
 After changing TypeScript source, run `npm run build` and restart or reload the MCP client so it sees the updated `dist/` files.
