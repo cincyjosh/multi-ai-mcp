@@ -1,0 +1,8 @@
+node_modules/
+dist/
+
+.mcp-test-tmp*/
+.claude/
+
+.DS_Store
+npm-debug.log*
