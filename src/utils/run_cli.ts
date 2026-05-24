@@ -8,11 +8,16 @@ export interface RunCliOptions {
   stdin?: string;
 }
 
+export interface RunCliResult {
+  stdout: string;
+  stderr: string;
+}
+
 export function runCli(
   command: string,
   args: string[],
   options: RunCliOptions = {}
-): Promise<string> {
+): Promise<RunCliResult> {
   const { timeoutMs = 120_000, idleTimeoutMs, stdin } = options;
 
   return new Promise((resolve, reject) => {
@@ -136,18 +141,21 @@ export function runCli(
         return;
       }
 
+      const stdout = Buffer.concat(stdoutChunks).toString("utf8");
+      const stderr = Buffer.concat(stderrChunks).toString("utf8");
+
       if (code !== 0 || signal) {
-        const raw = Buffer.concat(stderrChunks).toString("utf8").trim();
+        const raw = stderr.trim();
         const errText = raw.length > 500 ? raw.slice(0, 500) + " …[truncated]" : raw;
         const detail = signal ? `signal ${signal}` : `code ${code}`;
         reject(new Error(`${command} exited with ${detail}: ${errText}`));
       } else {
-        const raw = Buffer.concat(stderrChunks).toString("utf8").trim();
+        const raw = stderr.trim();
         if (raw) {
           const stderrText = raw.length > 200 ? raw.slice(0, 200) + " …[truncated]" : raw;
           console.error(`[run_cli] ${command} stderr: ${stderrText}`);
         }
-        resolve(Buffer.concat(stdoutChunks).toString("utf8"));
+        resolve({ stdout, stderr });
       }
     });
   });

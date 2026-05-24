@@ -5,6 +5,7 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
+import { consultClaude } from "./tools/consult_claude.js";
 import { consultCodex } from "./tools/consult_codex.js";
 import { consultGemini } from "./tools/consult_gemini.js";
 
@@ -80,9 +81,10 @@ async function withSessionLock<T>(
 // --- CLI flags ---
 const disableCodex = process.argv.includes("--disable-codex");
 const disableGemini = process.argv.includes("--disable-gemini");
+const disableClaude = process.argv.includes("--disable-claude");
 
-if (disableCodex && disableGemini) {
-  console.error("[multi-ai-mcp] Both tools disabled — nothing to serve. Exiting.");
+if (disableCodex && disableGemini && disableClaude) {
+  console.error("[multi-ai-mcp] All tools disabled — nothing to serve. Exiting.");
   process.exit(1);
 }
 
@@ -98,6 +100,14 @@ const ConsultCodexSchema = z.object({
 const ConsultGeminiSchema = z.object({
   prompt: z.string().min(1).max(100_000),
   files: z.array(z.string().min(1).max(4096)).max(20).optional(),
+  directory: z.string().min(1).max(4096).optional(),
+  sessionId: z.string().uuid().optional(),
+}).strict();
+
+const ConsultClaudeSchema = z.object({
+  prompt: z.string().min(1).max(100_000),
+  files: z.array(z.string().min(1).max(4096)).max(20).optional(),
+  images: z.array(z.string().min(1).max(4096)).max(10).optional(),
   directory: z.string().min(1).max(4096).optional(),
   sessionId: z.string().uuid().optional(),
 }).strict();
@@ -143,10 +153,29 @@ const geminiToolDef = {
   },
 };
 
+const claudeToolDef = {
+  name: "consult_claude",
+  description:
+    "Send a prompt to Claude Code and get a text response. Optionally attach local files as context or include a local directory. Pass sessionId to continue a previous conversation; omit it for a stateless one-shot call. The response includes a [Session ID: ...] footer when a session is active — pass that UUID back as sessionId on the next call to continue the conversation.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      prompt: { type: "string", minLength: 1, maxLength: 100_000, description: "The question or request" },
+      files: { type: "array", items: { type: "string", minLength: 1, maxLength: 4096 }, maxItems: 20, description: "Local file paths to include as text context" },
+      images: { type: "array", items: { type: "string", minLength: 1, maxLength: 4096 }, maxItems: 10, description: "Local image file paths (PNG/JPG/WEBP/GIF) for vision input" },
+      directory: { type: "string", minLength: 1, maxLength: 4096, description: "Local directory path to allow Claude Code to access for workspace context." },
+      sessionId: { type: "string", format: "uuid", description: "UUID to identify a conversation. Reuse across calls to maintain context; omit for a stateless one-shot call." },
+    },
+    required: ["prompt"],
+    additionalProperties: false,
+  },
+};
+
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
   tools: [
     ...(!disableCodex ? [codexToolDef] : []),
     ...(!disableGemini ? [geminiToolDef] : []),
+    ...(!disableClaude ? [claudeToolDef] : []),
   ],
 }));
 
@@ -229,6 +258,33 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           ? `${result.response}\n\n[Session ID: ${result.sessionId}]`
           : result.response;
         return { content: [{ type: "text", text: geminiText }] };
+      }
+      case "consult_claude": {
+        if (disableClaude) {
+          return { content: [{ type: "text", text: "consult_claude is disabled" }], isError: true };
+        }
+        const parsed = ConsultClaudeSchema.safeParse(args);
+        if (!parsed.success) {
+          const errorMsg = parsed.error.issues
+            .map((i) => `${i.path.join(".")}: ${i.message}`)
+            .join("; ");
+          return {
+            content: [{ type: "text", text: `Invalid arguments: ${errorMsg}` }],
+            isError: true,
+          };
+        }
+        const result = await withSemaphore(async () => {
+          const ping = startProgressPing(progressToken, (n) => server.notification(n as any));
+          try {
+            return await withSessionLock(parsed.data.sessionId, () => consultClaude(parsed.data));
+          } finally {
+            clearInterval(ping);
+          }
+        });
+        const claudeText = result.sessionId
+          ? `${result.response}\n\n[Session ID: ${result.sessionId}]`
+          : result.response;
+        return { content: [{ type: "text", text: claudeText }] };
       }
       default:
         return {

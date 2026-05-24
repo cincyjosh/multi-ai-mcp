@@ -5,10 +5,6 @@ import { homedir } from "os";
 
 const testDir = join(process.cwd(), ".mcp-test-tmp-codex");
 
-// Override CODEX_HOME so session_index.jsonl is written to our test dir
-process.env.CODEX_HOME = testDir;
-const sessionIndexPath = join(testDir, "session_index.jsonl");
-
 const { mockRunCli } = vi.hoisted(() => ({ mockRunCli: vi.fn() }));
 vi.mock("../../src/utils/run_cli.js", () => ({ runCli: mockRunCli }));
 
@@ -17,8 +13,6 @@ import { consultCodex } from "../../src/tools/consult_codex.js";
 describe("consultCodex", () => {
   beforeEach(async () => {
     await mkdir(testDir, { recursive: true });
-    // Clear session_index.jsonl before each test
-    try { await unlink(sessionIndexPath); } catch {}
     mockRunCli.mockClear();
     mockRunCli.mockImplementation(async (_cmd: string, _args: string[]) => {
       const args = _args as string[];
@@ -26,12 +20,14 @@ describe("consultCodex", () => {
       if (oIndex !== -1) {
         await writeFile(args[oIndex + 1], "codex response");
       }
-      // Simulate Codex writing a session entry (for non-ephemeral runs)
-      if (!args.includes("--ephemeral")) {
-        const entry = { id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", thread_name: "test", updated_at: new Date().toISOString() };
-        await writeFile(sessionIndexPath, JSON.stringify(entry) + "\n", { flag: "a" });
+      
+      let stderr = "";
+      // Simulate Codex outputting a session ID to stderr for new non-ephemeral sessions
+      if (!args.includes("--ephemeral") && args[1] !== "resume") {
+        stderr = "session id: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
       }
-      return "";
+      
+      return { stdout: "", stderr };
     });
   });
 

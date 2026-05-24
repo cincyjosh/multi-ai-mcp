@@ -24,7 +24,8 @@ async function runGeminiWithSession(
 ): Promise<string> {
   if (geminiSessions.has(sessionId)) {
     // Fast path: known existing session
-    return runCli(bin, [...baseArgs, "--resume", sessionId], opts);
+    const res = await runCli(bin, [...baseArgs, "--resume", sessionId], opts);
+    return res.stdout;
   }
 
   // Slow path: try to create the session; fall back to resume if it already
@@ -32,12 +33,12 @@ async function runGeminiWithSession(
   try {
     const result = await runCli(bin, [...baseArgs, "--session-id", sessionId], opts);
     markSessionEstablished(sessionId);
-    return result;
+    return result.stdout;
   } catch (err: any) {
     if (err.message?.includes("already exists")) {
       const result = await runCli(bin, [...baseArgs, "--resume", sessionId], opts);
       markSessionEstablished(sessionId);
-      return result;
+      return result.stdout;
     }
     throw err;
   }
@@ -61,16 +62,17 @@ export async function consultGemini(params: {
     const validatedDir = await resolveDirectorySafe(params.directory);
     dirArgs.push("--include-directories", validatedDir);
   }
-  const baseArgs = ["-p", "-", "-o", "text", ...dirArgs];
+  const baseArgs = ["-p", "-", "-o", "text", "--skip-trust", "--approval-mode", "plan", ...dirArgs];
 
   const timeoutMs = params.directory ? 600_000 : 300_000;
 
-  let raw: string;
+  let response: string;
   if (params.sessionId) {
-    raw = await runGeminiWithSession(bin, baseArgs, params.sessionId, { stdin: stdinContent, timeoutMs });
+    response = await runGeminiWithSession(bin, baseArgs, params.sessionId, { stdin: stdinContent, timeoutMs });
   } else {
-    raw = await runCli(bin, baseArgs, { stdin: stdinContent, timeoutMs });
+    const res = await runCli(bin, baseArgs, { stdin: stdinContent, timeoutMs });
+    response = res.stdout;
   }
 
-  return { response: raw.trim(), sessionId: params.sessionId ?? "" };
+  return { response: response.trim(), sessionId: params.sessionId ?? "" };
 }

@@ -1,6 +1,6 @@
 import { mkdtemp, open, readFile, rm, stat, writeFile, constants } from "fs/promises";
 import { extname, join } from "path";
-import { tmpdir, homedir } from "os";
+import { tmpdir } from "os";
 import {
   resolveDirectorySafe,
   resolveImagePathSafe,
@@ -26,108 +26,14 @@ function storeSession(callerId: string, codexId: string): void {
   codexSessions.set(callerId, codexId);
 }
 
-// --- Session discovery via session_index.jsonl byte-offset diffing ---
+// --- Session discovery via stderr scraping ---
 //
-// Codex auto-generates session IDs and records them in session_index.jsonl.
-// We snapshot the file size BEFORE running exec, then read ONLY the newly
-// appended bytes AFTER the run. This avoids loading the whole (potentially
-// large) file and precisely scopes which entries belong to our run.
-//
-// A module-level mutex serialises concurrent new-session creations so that
-// two simultaneous first-calls don't swap IDs via the external file.
+// Codex auto-generates session IDs and prints them to stderr during exec.
+// We capture stderr and scrape the ID to associate it with the caller's sessionId.
 
-function getSessionIndexPath(): string {
-  return join(process.env.CODEX_HOME ?? join(homedir(), ".codex"), "session_index.jsonl");
-}
-
-async function getSessionIndexOffset(): Promise<number> {
-  try {
-    return (await stat(getSessionIndexPath())).size;
-  } catch {
-    return 0; // file doesn't exist yet (first ever codex session)
-  }
-}
-
-const MAX_SESSION_INDEX_READ = 1024 * 1024; // 1 MB cap on newly appended bytes
-
-async function readNewSessionIds(afterOffset: number): Promise<string[]> {
-  const indexPath = getSessionIndexPath();
-  let size: number;
-  try {
-    size = (await stat(indexPath)).size;
-  } catch {
-    return []; // file doesn't exist yet
-  }
-  if (size <= afterOffset) return [];
-
-  const newBytes = size - afterOffset;
-  // Validate before allocating — throws propagate to caller, not silently swallowed
-  if (newBytes > MAX_SESSION_INDEX_READ) {
-    throw new Error(
-      `session_index.jsonl grew by ${newBytes} bytes in a single run — refusing to read`
-    );
-  }
-
-  const fd = await open(indexPath, "r");
-  try {
-    const buf = Buffer.allocUnsafe(newBytes);
-    await fd.read(buf, 0, buf.length, afterOffset);
-    return buf
-      .toString("utf8")
-      .split("\n")
-      .filter(Boolean)
-      .flatMap((line) => {
-        try {
-          const entry = JSON.parse(line);
-          return typeof entry.id === "string" ? [entry.id] : [];
-        } catch {
-          return [];
-        }
-      });
-  } finally {
-    await fd.close();
-  }
-}
-
-let _creationMutex = Promise.resolve();
-
-async function discoverNewCodexSessionId(
-  bin: string,
-  execArgs: string[],
-  opts: { stdin: string; timeoutMs?: number }
-): Promise<string> {
-  let discoveredId: string | undefined;
-
-  // Acquire the creation lock to prevent two concurrent new-session runs from
-  // reading each other's session_index.jsonl entries.
-  let releaseNext!: () => void;
-  const gate = new Promise<void>((r) => { releaseNext = r; });
-  const prevMutex = _creationMutex;
-  _creationMutex = prevMutex.then(() => gate, () => gate);
-
-  try {
-    await prevMutex.catch(() => {}); // wait; ignore previous error
-
-    const beforeOffset = await getSessionIndexOffset();
-    await runCli(bin, execArgs, { stdin: opts.stdin, timeoutMs: opts.timeoutMs });
-    const newIds = await readNewSessionIds(beforeOffset);
-
-    if (newIds.length === 1) {
-      discoveredId = newIds[0];
-    } else if (newIds.length === 0) {
-      throw new Error(
-        "Codex did not write a session entry — session_index.jsonl was not updated"
-      );
-    } else {
-      throw new Error(
-        `Ambiguous session: ${newIds.length} new Codex sessions appeared during the run`
-      );
-    }
-  } finally {
-    releaseNext();
-  }
-
-  return discoveredId!;
+function scrapeSessionId(stderr: string): string | undefined {
+  const match = stderr.match(/session id: ([a-f0-9-]{36})/i);
+  return match ? match[1] : undefined;
 }
 
 export async function consultCodex(params: {
@@ -195,8 +101,7 @@ export async function consultCodex(params: {
         await runCli(bin, args, { stdin: stdinContent, timeoutMs });
         returnedSessionId = params.sessionId;
       } else {
-        // New named session: run without --ephemeral, discover session ID via
-        // byte-offset diff of session_index.jsonl
+        // New named session: scrape ID from stderr
         const args = [
           "exec", "-",
           "--skip-git-repo-check",
@@ -204,7 +109,11 @@ export async function consultCodex(params: {
           "-o", outputFile,
           ...imageArgs,
         ];
-        const codexId = await discoverNewCodexSessionId(bin, args, { stdin: stdinContent, timeoutMs });
+        const result = await runCli(bin, args, { stdin: stdinContent, timeoutMs });
+        const codexId = scrapeSessionId(result.stderr);
+        if (!codexId) {
+          throw new Error("Codex did not output a session ID to stderr");
+        }
         storeSession(params.sessionId, codexId);
         returnedSessionId = params.sessionId;
       }

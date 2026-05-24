@@ -2,14 +2,15 @@ import { describe, it, expect } from "vitest";
 import { runCli } from "../../src/utils/run_cli.js";
 
 describe("runCli", () => {
-  it("returns stdout from a successful command", async () => {
+  it("returns stdout and stderr from a successful command", async () => {
     const result = await runCli("echo", ["hello world"]);
-    expect(result.trim()).toBe("hello world");
+    expect(result.stdout.trim()).toBe("hello world");
+    expect(result.stderr).toBe("");
   });
 
   it("accepts stdin and passes it to the process", async () => {
     const result = await runCli("cat", [], { stdin: "hello from stdin" });
-    expect(result.trim()).toBe("hello from stdin");
+    expect(result.stdout.trim()).toBe("hello from stdin");
   });
 
   it("throws with stderr when command exits non-zero", async () => {

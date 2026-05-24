@@ -13,7 +13,7 @@ describe("consultGemini", () => {
   beforeEach(async () => {
     await mkdir(testDir, { recursive: true });
     mockRunCli.mockClear();
-    mockRunCli.mockResolvedValue("gemini response");
+    mockRunCli.mockResolvedValue({ stdout: "gemini response", stderr: "" });
   });
 
   it("returns stdout as the response", async () => {
