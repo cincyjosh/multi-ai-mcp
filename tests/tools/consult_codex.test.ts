@@ -24,7 +24,7 @@ describe("consultCodex", () => {
       let stderr = "";
       // Simulate Codex outputting a session ID to stderr for new non-ephemeral sessions
       if (!args.includes("--ephemeral") && args[1] !== "resume") {
-        stderr = "session id: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+        stderr = "session review: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
       }
       
       return { stdout: "", stderr };
@@ -41,11 +41,12 @@ describe("consultCodex", () => {
     expect(result.sessionId).toBe("");
   });
 
-  it("calls codex with --skip-git-repo-check and --ephemeral when no sessionId", async () => {
+  it("calls codex with --skip-git-repo-check and exec - when no sessionId", async () => {
     await consultCodex({ prompt: "Hello" });
     const args: string[] = mockRunCli.mock.calls[0][1];
     expect(args).toContain("--skip-git-repo-check");
-    expect(args).toContain("--ephemeral");
+    expect(args[0]).toBe("exec");
+    expect(args[1]).toBe("-");
   });
 
   it("passes prompt via stdin not as a positional arg", async () => {
@@ -119,15 +120,18 @@ describe("consultCodex", () => {
     expect(args[cIndex + 1]).toBe(testDir);
   });
 
-  it("uses exec resume on a subsequent call with the same sessionId", async () => {
+  it("uses exec resume on a subsequent call with the same sessionId and omits -C", async () => {
     const sessionId = "33333333-3333-3333-3333-333333333333";
-    // First call: establish the session
-    await consultCodex({ prompt: "First", sessionId });
-    // Second call: should resume using the Codex internal ID
-    await consultCodex({ prompt: "Second", sessionId });
+    // First call: establish the session with a directory
+    await consultCodex({ prompt: "First", sessionId, directory: testDir });
+    // Second call: should resume using the Codex internal ID and NOT pass -C
+    await consultCodex({ prompt: "Second", sessionId, directory: testDir });
     const resumeArgs: string[] = mockRunCli.mock.calls[1][1];
+    expect(resumeArgs[0]).toBe("exec");
     expect(resumeArgs[1]).toBe("resume");
     // Should use the Codex internal ID (from session_index), not the caller's UUID
     expect(resumeArgs[2]).toBe("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+    // Verify -C is not present in the resume arguments
+    expect(resumeArgs).not.toContain("-C");
   });
 });

@@ -32,7 +32,7 @@ function storeSession(callerId: string, codexId: string): void {
 // We capture stderr and scrape the ID to associate it with the caller's sessionId.
 
 function scrapeSessionId(stderr: string): string | undefined {
-  const match = stderr.match(/session id: ([a-f0-9-]{36})/i);
+  const match = stderr.match(/(?:session id|session review): ([a-f0-9-]{36})/i);
   return match ? match[1] : undefined;
 }
 
@@ -90,9 +90,8 @@ export async function consultCodex(params: {
       const existingCodexId = codexSessions.get(params.sessionId);
 
       if (existingCodexId) {
-        // Resume existing session
+        // Resume existing session: Omit dirArgs as codex maintains context
         const args = [
-          ...dirArgs,
           "exec", "resume", existingCodexId, "-",
           "--skip-git-repo-check",
           "-o", outputFile,
