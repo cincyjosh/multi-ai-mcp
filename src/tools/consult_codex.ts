@@ -92,9 +92,9 @@ export async function consultCodex(params: {
       if (existingCodexId) {
         // Resume existing session
         const args = [
+          ...dirArgs,
           "exec", "resume", existingCodexId, "-",
           "--skip-git-repo-check",
-          ...dirArgs,
           "-o", outputFile,
           ...imageArgs,
         ];
@@ -103,9 +103,9 @@ export async function consultCodex(params: {
       } else {
         // New named session: scrape ID from stderr
         const args = [
+          ...dirArgs,
           "exec", "-",
           "--skip-git-repo-check",
-          ...dirArgs,
           "-o", outputFile,
           ...imageArgs,
         ];
@@ -120,10 +120,10 @@ export async function consultCodex(params: {
     } else {
       // Stateless (ephemeral) — original behaviour
       const args = [
+        ...dirArgs,
         "exec", "-",
         "--skip-git-repo-check",
         "--ephemeral",
-        ...dirArgs,
         "-o", outputFile,
         ...imageArgs,
       ];
