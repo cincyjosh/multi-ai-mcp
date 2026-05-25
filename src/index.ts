@@ -55,12 +55,21 @@ async function withSemaphore<T>(fn: () => Promise<T>): Promise<T> {
 // Per-session mutex: prevents two concurrent requests for the same sessionId
 // from mutating the same underlying CLI conversation simultaneously.
 const sessionLocks = new Map<string, Promise<void>>();
+const sessionWaiters = new Map<string, number>();
+const MAX_SESSION_WAITERS = 10;
 
 async function withSessionLock<T>(
   sessionId: string | undefined,
   fn: () => Promise<T>
 ): Promise<T> {
   if (!sessionId) return fn();
+
+  const count = sessionWaiters.get(sessionId) ?? 0;
+  if (count >= MAX_SESSION_WAITERS) {
+    throw new Error(`Too many pending requests for session ${sessionId}`);
+  }
+  sessionWaiters.set(sessionId, count + 1);
+
   const prev = sessionLocks.get(sessionId) ?? Promise.resolve();
   let release!: () => void;
   const current = new Promise<void>((r) => { release = r; });
@@ -71,6 +80,12 @@ async function withSessionLock<T>(
     return await fn();
   } finally {
     release();
+    const newCount = (sessionWaiters.get(sessionId) ?? 1) - 1;
+    if (newCount <= 0) {
+      sessionWaiters.delete(sessionId);
+    } else {
+      sessionWaiters.set(sessionId, newCount);
+    }
     // Remove the entry only if no newer waiter has replaced it
     if (sessionLocks.get(sessionId) === chained) {
       sessionLocks.delete(sessionId);
@@ -88,29 +103,40 @@ if (disableCodex && disableGemini && disableClaude) {
   process.exit(1);
 }
 
+const MAX_FILES = 5;
+
 // --- Zod schemas for runtime validation ---
 const ConsultCodexSchema = z.object({
   prompt: z.string().min(1).max(100_000),
-  files: z.array(z.string().min(1).max(4096)).max(20).optional(),
-  images: z.array(z.string().min(1).max(4096)).max(10).optional(),
   directory: z.string().min(1).max(4096).optional(),
+  files: z.array(z.string().min(1).max(4096)).max(MAX_FILES).optional(),
+  images: z.array(z.string().min(1).max(4096)).max(10).optional(),
   sessionId: z.string().uuid().optional(),
-}).strict();
+}).strict().refine((data) => !(data.directory && data.files?.length), {
+  message: "Provide 'directory' or 'files', not both. Prefer 'directory' for codebase tasks.",
+  path: ["files"],
+});
 
 const ConsultGeminiSchema = z.object({
   prompt: z.string().min(1).max(100_000),
-  files: z.array(z.string().min(1).max(4096)).max(20).optional(),
   directory: z.string().min(1).max(4096).optional(),
+  files: z.array(z.string().min(1).max(4096)).max(MAX_FILES).optional(),
   sessionId: z.string().uuid().optional(),
-}).strict();
+}).strict().refine((data) => !(data.directory && data.files?.length), {
+  message: "Provide 'directory' or 'files', not both. Prefer 'directory' for codebase tasks.",
+  path: ["files"],
+});
 
 const ConsultClaudeSchema = z.object({
   prompt: z.string().min(1).max(100_000),
-  files: z.array(z.string().min(1).max(4096)).max(20).optional(),
-  images: z.array(z.string().min(1).max(4096)).max(10).optional(),
   directory: z.string().min(1).max(4096).optional(),
+  files: z.array(z.string().min(1).max(4096)).max(MAX_FILES).optional(),
+  images: z.array(z.string().min(1).max(4096)).max(10).optional(),
   sessionId: z.string().uuid().optional(),
-}).strict();
+}).strict().refine((data) => !(data.directory && data.files?.length), {
+  message: "Provide 'directory' or 'files', not both. Prefer 'directory' for codebase tasks.",
+  path: ["files"],
+});
 
 // --- Server setup ---
 const server = new Server(
@@ -121,17 +147,18 @@ const server = new Server(
 const codexToolDef = {
   name: "consult_codex",
   description:
-    "Send a prompt to OpenAI Codex and get a text response. Optionally attach local files as context or images for vision input. Pass sessionId to continue a previous conversation; omit it for a stateless one-shot call. The response includes a [Session ID: ...] footer when a session is active — pass that UUID back as sessionId on the next call to continue the conversation.",
+    "Send a prompt to OpenAI Codex. ALWAYS prefer 'directory' for codebase-wide tasks or repository reviews. Use 'files' only for specific, surgical context (max 5 files). The response includes a [Session ID: ...] footer when a session is active — pass that UUID back as sessionId on the next call to continue the conversation.",
   inputSchema: {
     type: "object",
     properties: {
       prompt: { type: "string", minLength: 1, maxLength: 100_000, description: "The question or request" },
-      files: { type: "array", items: { type: "string", minLength: 1, maxLength: 4096 }, maxItems: 20, description: "Local file paths to include as text context" },
+      directory: { type: "string", minLength: 1, maxLength: 4096, description: "The root directory of the project. ALWAYS prefer this for codebase-wide tasks, repository reviews, or when you need to navigate multiple files. The agent will browse and index the directory itself." },
+      files: { type: "array", items: { type: "string", minLength: 1, maxLength: 4096 }, maxItems: MAX_FILES, description: `Small set of specific files for surgical context. DO NOT use for broad codebase tasks. Max ${MAX_FILES} files. Do NOT include files already accessible via 'directory'.` },
       images: { type: "array", items: { type: "string", minLength: 1, maxLength: 4096 }, maxItems: 10, description: "Local image file paths (PNG/JPG/WEBP/GIF) for vision input" },
-      directory: { type: "string", minLength: 1, maxLength: 4096, description: "Local directory path to pass as the agent working root (e.g. a repo to review). The agent browses the directory itself — no file size limits apply." },
       sessionId: { type: "string", format: "uuid", description: "UUID to identify a conversation. Reuse across calls to maintain context; omit or use a new UUID to start fresh." },
     },
     required: ["prompt"],
+    not: { required: ["directory", "files"] },
     additionalProperties: false,
   },
 };
@@ -139,16 +166,17 @@ const codexToolDef = {
 const geminiToolDef = {
   name: "consult_gemini",
   description:
-    "Send a prompt to Google Gemini and get a text response. Optionally attach local files as context. Pass sessionId to continue a previous conversation; omit it for a stateless one-shot call. The response includes a [Session ID: ...] footer when a session is active — pass that UUID back as sessionId on the next call to continue the conversation.",
+    "Send a prompt to Google Gemini. ALWAYS prefer 'directory' for codebase-wide tasks or repository reviews. Use 'files' only for specific, surgical context (max 5 files). The response includes a [Session ID: ...] footer when a session is active — pass that UUID back as sessionId on the next call to continue the conversation.",
   inputSchema: {
     type: "object",
     properties: {
       prompt: { type: "string", minLength: 1, maxLength: 100_000, description: "The question or request" },
-      files: { type: "array", items: { type: "string", minLength: 1, maxLength: 4096 }, maxItems: 20, description: "Local file paths to include as text context" },
-      directory: { type: "string", minLength: 1, maxLength: 4096, description: "Local directory path to include in the workspace context (e.g. a repo to review). The agent browses the directory itself — no file size limits apply." },
+      directory: { type: "string", minLength: 1, maxLength: 4096, description: "The root directory of the project. ALWAYS prefer this for codebase-wide tasks, repository reviews, or when you need to navigate multiple files. The agent will browse and index the directory itself." },
+      files: { type: "array", items: { type: "string", minLength: 1, maxLength: 4096 }, maxItems: MAX_FILES, description: `Small set of specific files for surgical context. DO NOT use for broad codebase tasks. Max ${MAX_FILES} files. Do NOT include files already accessible via 'directory'.` },
       sessionId: { type: "string", format: "uuid", description: "UUID to identify a conversation. Reuse across calls to maintain context; omit or use a new UUID to start fresh." },
     },
     required: ["prompt"],
+    not: { required: ["directory", "files"] },
     additionalProperties: false,
   },
 };
@@ -156,17 +184,18 @@ const geminiToolDef = {
 const claudeToolDef = {
   name: "consult_claude",
   description:
-    "Send a prompt to Claude Code and get a text response. Optionally attach local files as context or include a local directory. Pass sessionId to continue a previous conversation; omit it for a stateless one-shot call. The response includes a [Session ID: ...] footer when a session is active — pass that UUID back as sessionId on the next call to continue the conversation.",
+    "Send a prompt to Claude Code. ALWAYS prefer 'directory' for codebase-wide tasks or repository reviews. Use 'files' only for specific, surgical context (max 5 files). The response includes a [Session ID: ...] footer when a session is active — pass that UUID back as sessionId on the next call to continue the conversation.",
   inputSchema: {
     type: "object",
     properties: {
       prompt: { type: "string", minLength: 1, maxLength: 100_000, description: "The question or request" },
-      files: { type: "array", items: { type: "string", minLength: 1, maxLength: 4096 }, maxItems: 20, description: "Local file paths to include as text context" },
+      directory: { type: "string", minLength: 1, maxLength: 4096, description: "The root directory of the project. ALWAYS prefer this for codebase-wide tasks, repository reviews, or when you need to navigate multiple files. Claude Code will have full access to this directory." },
+      files: { type: "array", items: { type: "string", minLength: 1, maxLength: 4096 }, maxItems: MAX_FILES, description: `Small set of specific files for surgical context. DO NOT use for broad codebase tasks. Max ${MAX_FILES} files. Do NOT include files already accessible via 'directory'.` },
       images: { type: "array", items: { type: "string", minLength: 1, maxLength: 4096 }, maxItems: 10, description: "Local image file paths (PNG/JPG/WEBP/GIF) for vision input" },
-      directory: { type: "string", minLength: 1, maxLength: 4096, description: "Local directory path to allow Claude Code to access for workspace context." },
       sessionId: { type: "string", format: "uuid", description: "UUID to identify a conversation. Reuse across calls to maintain context; omit for a stateless one-shot call." },
     },
     required: ["prompt"],
+    not: { required: ["directory", "files"] },
     additionalProperties: false,
   },
 };
@@ -199,6 +228,8 @@ function startProgressPing(
   }, PROGRESS_INTERVAL_MS);
 }
 
+const DIRECTORY_HINT = "\n\n[Hint: For broad tasks involving multiple files, prefer the 'directory' parameter over individual 'files' for better efficiency.]";
+
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
   const progressToken = request.params._meta?.progressToken;
@@ -219,18 +250,24 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             isError: true,
           };
         }
-        const result = await withSemaphore(async () => {
-          const ping = startProgressPing(progressToken, (n) => server.notification(n as any));
-          try {
-            return await withSessionLock(parsed.data.sessionId, () => consultCodex(parsed.data));
-          } finally {
-            clearInterval(ping);
-          }
-        });
-        const codexText = result.sessionId
-          ? `${result.response}\n\n[Session ID: ${result.sessionId}]`
-          : result.response;
-        return { content: [{ type: "text", text: codexText }] };
+        const result = await withSessionLock(parsed.data.sessionId, () =>
+          withSemaphore(async () => {
+            const ping = startProgressPing(progressToken, (n) => server.notification(n as any));
+            try {
+              return await consultCodex(parsed.data);
+            } finally {
+              clearInterval(ping);
+            }
+          })
+        );
+        let responseText = result.response;
+        if ((parsed.data.files?.length ?? 0) >= 2 && !parsed.data.directory) {
+          responseText += DIRECTORY_HINT;
+        }
+        const finalContent = result.sessionId
+          ? `${responseText}\n\n[Session ID: ${result.sessionId}]`
+          : responseText;
+        return { content: [{ type: "text", text: finalContent }] };
       }
       case "consult_gemini": {
         if (disableGemini) {
@@ -246,18 +283,24 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             isError: true,
           };
         }
-        const result = await withSemaphore(async () => {
-          const ping = startProgressPing(progressToken, (n) => server.notification(n as any));
-          try {
-            return await withSessionLock(parsed.data.sessionId, () => consultGemini(parsed.data));
-          } finally {
-            clearInterval(ping);
-          }
-        });
-        const geminiText = result.sessionId
-          ? `${result.response}\n\n[Session ID: ${result.sessionId}]`
-          : result.response;
-        return { content: [{ type: "text", text: geminiText }] };
+        const result = await withSessionLock(parsed.data.sessionId, () =>
+          withSemaphore(async () => {
+            const ping = startProgressPing(progressToken, (n) => server.notification(n as any));
+            try {
+              return await consultGemini(parsed.data);
+            } finally {
+              clearInterval(ping);
+            }
+          })
+        );
+        let responseText = result.response;
+        if ((parsed.data.files?.length ?? 0) >= 2 && !parsed.data.directory) {
+          responseText += DIRECTORY_HINT;
+        }
+        const finalContent = result.sessionId
+          ? `${responseText}\n\n[Session ID: ${result.sessionId}]`
+          : responseText;
+        return { content: [{ type: "text", text: finalContent }] };
       }
       case "consult_claude": {
         if (disableClaude) {
@@ -273,18 +316,24 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             isError: true,
           };
         }
-        const result = await withSemaphore(async () => {
-          const ping = startProgressPing(progressToken, (n) => server.notification(n as any));
-          try {
-            return await withSessionLock(parsed.data.sessionId, () => consultClaude(parsed.data));
-          } finally {
-            clearInterval(ping);
-          }
-        });
-        const claudeText = result.sessionId
-          ? `${result.response}\n\n[Session ID: ${result.sessionId}]`
-          : result.response;
-        return { content: [{ type: "text", text: claudeText }] };
+        const result = await withSessionLock(parsed.data.sessionId, () =>
+          withSemaphore(async () => {
+            const ping = startProgressPing(progressToken, (n) => server.notification(n as any));
+            try {
+              return await consultClaude(parsed.data);
+            } finally {
+              clearInterval(ping);
+            }
+          })
+        );
+        let responseText = result.response;
+        if ((parsed.data.files?.length ?? 0) >= 2 && !parsed.data.directory) {
+          responseText += DIRECTORY_HINT;
+        }
+        const finalContent = result.sessionId
+          ? `${responseText}\n\n[Session ID: ${result.sessionId}]`
+          : responseText;
+        return { content: [{ type: "text", text: finalContent }] };
       }
       default:
         return {
