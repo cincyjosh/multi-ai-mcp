@@ -42,6 +42,7 @@ export async function consultCodex(params: {
   images?: string[];
   directory?: string;
   sessionId?: string;
+  timeoutMs?: number;
 }): Promise<{ response: string; sessionId: string }> {
   const fileContext = await buildFileContext(params.files ?? []);
   const stdinContent = fileContext
@@ -84,7 +85,7 @@ export async function consultCodex(params: {
       }
     }
 
-    const timeoutMs = params.directory ? 600_000 : 300_000;
+    const timeoutMs = params.timeoutMs ?? (params.directory ? 600_000 : 300_000);
 
     if (params.sessionId) {
       const existingCodexId = codexSessions.get(params.sessionId);

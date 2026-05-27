@@ -104,4 +104,21 @@ describe("consultClaude", () => {
     ).rejects.toThrow("Unsupported image type");
     await unlink(tmpTxt);
   });
+
+  it("passes custom timeoutMs to runCli when provided", async () => {
+    const customTimeout = 123456;
+    await consultClaude({ prompt: "Hello", timeoutMs: customTimeout });
+    const options = mockRunCli.mock.calls[0][2];
+    expect(options.timeoutMs).toBe(customTimeout);
+  });
+
+  it("uses default timeoutMs based on directory presence when not provided", async () => {
+    // No directory
+    await consultClaude({ prompt: "Hello" });
+    expect(mockRunCli.mock.calls[0][2].timeoutMs).toBe(300_000);
+
+    // With directory
+    await consultClaude({ prompt: "Hello", directory: testDir });
+    expect(mockRunCli.mock.calls[1][2].timeoutMs).toBe(600_000);
+  });
 });

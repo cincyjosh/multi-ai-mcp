@@ -112,6 +112,7 @@ const ConsultCodexSchema = z.object({
   files: z.array(z.string().min(1).max(4096)).max(MAX_FILES).optional(),
   images: z.array(z.string().min(1).max(4096)).max(10).optional(),
   sessionId: z.string().uuid().optional(),
+  timeoutMs: z.number().int().min(1).max(3600_000).optional(),
 }).strict().refine((data) => !(data.directory && data.files?.length), {
   message: "Provide 'directory' or 'files', not both. Prefer 'directory' for codebase tasks.",
   path: ["files"],
@@ -122,6 +123,7 @@ const ConsultGeminiSchema = z.object({
   directory: z.string().min(1).max(4096).optional(),
   files: z.array(z.string().min(1).max(4096)).max(MAX_FILES).optional(),
   sessionId: z.string().uuid().optional(),
+  timeoutMs: z.number().int().min(1).max(3600_000).optional(),
 }).strict().refine((data) => !(data.directory && data.files?.length), {
   message: "Provide 'directory' or 'files', not both. Prefer 'directory' for codebase tasks.",
   path: ["files"],
@@ -133,6 +135,7 @@ const ConsultClaudeSchema = z.object({
   files: z.array(z.string().min(1).max(4096)).max(MAX_FILES).optional(),
   images: z.array(z.string().min(1).max(4096)).max(10).optional(),
   sessionId: z.string().uuid().optional(),
+  timeoutMs: z.number().int().min(1).max(3600_000).optional(),
 }).strict().refine((data) => !(data.directory && data.files?.length), {
   message: "Provide 'directory' or 'files', not both. Prefer 'directory' for codebase tasks.",
   path: ["files"],
@@ -156,6 +159,7 @@ const codexToolDef = {
       files: { type: "array", items: { type: "string", minLength: 1, maxLength: 4096 }, maxItems: MAX_FILES, description: `Small set of specific files for surgical context. DO NOT use for broad codebase tasks. Max ${MAX_FILES} files. Do NOT include files already accessible via 'directory'.` },
       images: { type: "array", items: { type: "string", minLength: 1, maxLength: 4096 }, maxItems: 10, description: "Local image file paths (PNG/JPG/WEBP/GIF) for vision input" },
       sessionId: { type: "string", format: "uuid", description: "UUID to identify a conversation. Reuse across calls to maintain context; omit or use a new UUID to start fresh." },
+      timeoutMs: { type: "number", minimum: 1, maximum: 3600_000, description: "Optional custom timeout in milliseconds for the CLI call (default: 300s, or 600s for codebase tasks)." },
     },
     required: ["prompt"],
     not: { required: ["directory", "files"] },
@@ -174,6 +178,7 @@ const geminiToolDef = {
       directory: { type: "string", minLength: 1, maxLength: 4096, description: "The root directory of the project. ALWAYS prefer this for codebase-wide tasks, repository reviews, or when you need to navigate multiple files. The agent will browse and index the directory itself." },
       files: { type: "array", items: { type: "string", minLength: 1, maxLength: 4096 }, maxItems: MAX_FILES, description: `Small set of specific files for surgical context. DO NOT use for broad codebase tasks. Max ${MAX_FILES} files. Do NOT include files already accessible via 'directory'.` },
       sessionId: { type: "string", format: "uuid", description: "UUID to identify a conversation. Reuse across calls to maintain context; omit or use a new UUID to start fresh." },
+      timeoutMs: { type: "number", minimum: 1, maximum: 3600_000, description: "Optional custom timeout in milliseconds for the CLI call (default: 300s, or 600s for codebase tasks)." },
     },
     required: ["prompt"],
     not: { required: ["directory", "files"] },
@@ -193,6 +198,7 @@ const claudeToolDef = {
       files: { type: "array", items: { type: "string", minLength: 1, maxLength: 4096 }, maxItems: MAX_FILES, description: `Small set of specific files for surgical context. DO NOT use for broad codebase tasks. Max ${MAX_FILES} files. Do NOT include files already accessible via 'directory'.` },
       images: { type: "array", items: { type: "string", minLength: 1, maxLength: 4096 }, maxItems: 10, description: "Local image file paths (PNG/JPG/WEBP/GIF) for vision input" },
       sessionId: { type: "string", format: "uuid", description: "UUID to identify a conversation. Reuse across calls to maintain context; omit for a stateless one-shot call." },
+      timeoutMs: { type: "number", minimum: 1, maximum: 3600_000, description: "Optional custom timeout in milliseconds for the CLI call (default: 300s, or 600s for codebase tasks)." },
     },
     required: ["prompt"],
     not: { required: ["directory", "files"] },

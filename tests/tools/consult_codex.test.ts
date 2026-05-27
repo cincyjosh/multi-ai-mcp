@@ -134,4 +134,21 @@ describe("consultCodex", () => {
     // Verify -C is not present in the resume arguments
     expect(resumeArgs).not.toContain("-C");
   });
+
+  it("passes custom timeoutMs to runCli when provided", async () => {
+    const customTimeout = 123456;
+    await consultCodex({ prompt: "Hello", timeoutMs: customTimeout });
+    const options = mockRunCli.mock.calls[0][2];
+    expect(options.timeoutMs).toBe(customTimeout);
+  });
+
+  it("uses default timeoutMs based on directory presence when not provided", async () => {
+    // No directory
+    await consultCodex({ prompt: "Hello" });
+    expect(mockRunCli.mock.calls[0][2].timeoutMs).toBe(300_000);
+
+    // With directory
+    await consultCodex({ prompt: "Hello", directory: testDir });
+    expect(mockRunCli.mock.calls[1][2].timeoutMs).toBe(600_000);
+  });
 });

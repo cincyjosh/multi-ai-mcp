@@ -99,4 +99,21 @@ describe("consultGemini", () => {
     expect(args).not.toContain("--session-id");
     expect(args).not.toContain("--resume");
   });
+
+  it("passes custom timeoutMs to runCli when provided", async () => {
+    const customTimeout = 123456;
+    await consultGemini({ prompt: "Hello", timeoutMs: customTimeout });
+    const options = mockRunCli.mock.calls[0][2];
+    expect(options.timeoutMs).toBe(customTimeout);
+  });
+
+  it("uses default timeoutMs based on directory presence when not provided", async () => {
+    // No directory
+    await consultGemini({ prompt: "Hello" });
+    expect(mockRunCli.mock.calls[0][2].timeoutMs).toBe(300_000);
+
+    // With directory
+    await consultGemini({ prompt: "Hello", directory: testDir });
+    expect(mockRunCli.mock.calls[1][2].timeoutMs).toBe(600_000);
+  });
 });

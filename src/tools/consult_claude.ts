@@ -28,6 +28,7 @@ export async function consultClaude(params: {
   images?: string[];
   directory?: string;
   sessionId?: string;
+  timeoutMs?: number;
 }): Promise<{ response: string; sessionId: string }> {
   const fileContext = await buildFileContext(params.files ?? []);
 
@@ -76,7 +77,7 @@ export async function consultClaude(params: {
       finalArgs.push("--add-dir", ...addDirs);
     }
 
-    const timeoutMs = params.directory ? 600_000 : 300_000;
+    const timeoutMs = params.timeoutMs ?? (params.directory ? 600_000 : 300_000);
     let response: string;
 
     if (params.sessionId) {

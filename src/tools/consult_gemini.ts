@@ -49,6 +49,7 @@ export async function consultGemini(params: {
   files?: string[];
   directory?: string;
   sessionId?: string;
+  timeoutMs?: number;
 }): Promise<{ response: string; sessionId: string }> {
   const fileContext = await buildFileContext(params.files ?? []);
 
@@ -64,7 +65,7 @@ export async function consultGemini(params: {
   }
   const baseArgs = ["-p", "-", "-o", "text", "--skip-trust", "--approval-mode", "plan", ...dirArgs];
 
-  const timeoutMs = params.directory ? 600_000 : 300_000;
+  const timeoutMs = params.timeoutMs ?? (params.directory ? 600_000 : 300_000);
 
   let response: string;
   if (params.sessionId) {
