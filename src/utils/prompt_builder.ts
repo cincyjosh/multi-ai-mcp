@@ -1,42 +1,18 @@
-import { readFileContent, MAX_FILE_BYTES } from "./file_reader.js";
+import { resolvePathSafe } from "./file_reader.js";
+import { dirname } from "path";
 
-const MAX_TOTAL_BYTES = 500_000;
+export interface FileContext {
+  prompt: string;
+  directories: string[];
+}
 
-export async function buildFileContext(files: string[]): Promise<string> {
-  if (files.length === 0) return "";
+export async function buildFileContext(files: string[]): Promise<FileContext> {
+  if (files.length === 0) return { prompt: "", directories: [] };
 
-  const contents = await Promise.all(files.map((f) => readFileContent(f)));
+  const resolvedPaths = await Promise.all(files.map((f) => resolvePathSafe(f)));
+  const directories = [...new Set(resolvedPaths.map((p) => dirname(p)))];
 
-  let totalBytes = 0;
-  const chunks: string[] = [];
+  const prompt = `The following files are relevant to this request and are accessible in your environment. Use your tools (like read_file or grep) to examine them if needed:\n${resolvedPaths.map((p) => `- ${p}`).join("\n")}`;
 
-  for (let i = 0; i < files.length; i++) {
-    const content = contents[i];
-    const contentBytes = Buffer.byteLength(content, "utf-8");
-    if (contentBytes > MAX_FILE_BYTES) {
-      throw new Error(
-        `File too large (${contentBytes} bytes, max ${MAX_FILE_BYTES}): ${files[i]}`
-      );
-    }
-    // Use a distinctive tag-style delimiter that is very unlikely to appear
-    // organically in file content, making section-spoofing harder.
-    // Newlines and XML attribute-special characters are escaped so a crafted
-    // filename can't break out of the path="" attribute or inject new tags.
-    const safeName = files[i]
-      .replace(/[\r\n]/g, " ")
-      .replace(/&/g, "&amp;")
-      .replace(/"/g, "&quot;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;");
-    const chunk = `<file path="${safeName}">\n${content}\n</file>`;
-    totalBytes += Buffer.byteLength(chunk, "utf-8");
-    if (totalBytes > MAX_TOTAL_BYTES) {
-      throw new Error(
-        `Total file context exceeds limit of ${MAX_TOTAL_BYTES} bytes`
-      );
-    }
-    chunks.push(chunk);
-  }
-
-  return chunks.join("\n\n");
+  return { prompt, directories };
 }
