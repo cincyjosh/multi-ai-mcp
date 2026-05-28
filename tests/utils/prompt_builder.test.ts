@@ -1,41 +1,49 @@
-import { vi, describe, it, expect, beforeEach } from "vitest";
+import { vi, describe, it, expect } from "vitest";
+import { resolvePathSafe } from "../../src/utils/file_reader.js";
+import { stat } from "fs/promises";
 
 vi.mock("../../src/utils/file_reader.js", () => ({
-  readFileContent: vi.fn(async (path: string) => `content of ${path}`),
-  MAX_FILE_BYTES: 100_000,
+  resolvePathSafe: vi.fn(async (path: string) => path),
 }));
 
-import { readFileContent } from "../../src/utils/file_reader.js";
+vi.mock("fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("fs/promises")>();
+  return {
+    ...actual,
+    stat: vi.fn(async (path: string) => ({
+      isFile: () => true,
+    })),
+  };
+});
+
 import { buildFileContext } from "../../src/utils/prompt_builder.js";
 
-const mockRead = vi.mocked(readFileContent);
+const mockResolve = vi.mocked(resolvePathSafe);
 
 describe("buildFileContext", () => {
-  beforeEach(() => {
-    mockRead.mockImplementation(async (path: string) => `content of ${path}`);
+  it("returns empty prompt and no directories when no files given", async () => {
+    expect(await buildFileContext([])).toEqual({
+      prompt: "",
+      directories: [],
+    });
   });
 
-  it("returns empty string when no files given", async () => {
-    expect(await buildFileContext([])).toBe("");
-  });
+  it("lists file paths in prompt and returns unique parent directories", async () => {
+    mockResolve.mockImplementation(async (path: string) => {
+      if (path === "a.ts") return "/work/src/a.ts";
+      if (path === "b.ts") return "/work/src/b.ts";
+      if (path === "c.ts") return "/work/utils/c.ts";
+      return path;
+    });
 
-  it("formats file contents with path headers", async () => {
-    const result = await buildFileContext(["/a.ts", "/b.ts"]);
-    expect(result).toContain('<file path="/a.ts">');
-    expect(result).toContain("content of /a.ts");
-    expect(result).toContain('<file path="/b.ts">');
-  });
+    const result = await buildFileContext(["a.ts", "b.ts", "c.ts"]);
 
-  it("throws when a single file exceeds MAX_FILE_BYTES", async () => {
-    mockRead.mockResolvedValueOnce("x".repeat(100_001));
-    await expect(buildFileContext(["/big.ts"])).rejects.toThrow("File too large");
-  });
+    expect(result.prompt).toContain("- /work/src/a.ts");
+    expect(result.prompt).toContain("- /work/src/b.ts");
+    expect(result.prompt).toContain("- /work/utils/c.ts");
 
-  it("throws when total file context exceeds MAX_TOTAL_BYTES", async () => {
-    mockRead.mockResolvedValue("x".repeat(90_000));
-    const files = ["/a.ts", "/b.ts", "/c.ts", "/d.ts", "/e.ts", "/f.ts"];
-    await expect(buildFileContext(files)).rejects.toThrow(
-      "Total file context exceeds limit"
-    );
+    expect(result.directories).toHaveLength(2);
+    expect(result.directories).toContain("/work/src");
+    expect(result.directories).toContain("/work/utils");
   });
 });

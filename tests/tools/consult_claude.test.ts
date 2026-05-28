@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mkdir, writeFile, unlink } from "fs/promises";
-import { join } from "path";
+import { join, dirname } from "path";
 
 const testDir = join(process.cwd(), ".mcp-test-tmp-claude");
 
@@ -53,14 +53,20 @@ describe("consultClaude", () => {
     expect(result.sessionId).toBe(sessionId);
   });
 
-  it("merges prompt and file contents into stdin", async () => {
+  it("points to files and adds their directories via --add-dir", async () => {
     const tmpFile = join(testDir, `test-${Date.now()}.txt`);
     await writeFile(tmpFile, "claude file content");
 
     await consultClaude({ prompt: "Review this", files: [tmpFile] });
+    const args = mockRunCli.mock.calls[0][1];
     const options = mockRunCli.mock.calls[0][2];
+    
     expect(options.stdin).toContain("Review this");
-    expect(options.stdin).toContain("claude file content");
+    expect(options.stdin).toContain(tmpFile);
+    expect(options.stdin).not.toContain("claude file content");
+    
+    expect(args).toContain("--add-dir");
+    expect(args).toContain(dirname(tmpFile));
 
     await unlink(tmpFile);
   });
@@ -69,7 +75,7 @@ describe("consultClaude", () => {
     const missing = join(testDir, "nonexistent.txt");
     await expect(
       consultClaude({ prompt: "test", files: [missing] })
-    ).rejects.toThrow();
+    ).rejects.toThrow("File not found");
   });
 
   it("passes --add-dir when directory is provided", async () => {

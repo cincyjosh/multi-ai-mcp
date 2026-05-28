@@ -1,7 +1,6 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { mkdir, writeFile, unlink, rm } from "fs/promises";
-import { join } from "path";
-import { homedir } from "os";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { mkdir, writeFile, unlink } from "fs/promises";
+import { join, dirname } from "path";
 
 const testDir = join(process.cwd(), ".mcp-test-tmp-codex");
 
@@ -20,13 +19,13 @@ describe("consultCodex", () => {
       if (oIndex !== -1) {
         await writeFile(args[oIndex + 1], "codex response");
       }
-      
+
       let stderr = "";
       // Simulate Codex outputting a session ID to stderr for new non-ephemeral sessions
       if (!args.includes("--ephemeral") && args[1] !== "resume") {
         stderr = "session review: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
       }
-      
+
       return { stdout: "", stderr };
     });
   });
@@ -45,25 +44,31 @@ describe("consultCodex", () => {
     await consultCodex({ prompt: "Hello" });
     const args: string[] = mockRunCli.mock.calls[0][1];
     expect(args).toContain("--skip-git-repo-check");
-    expect(args[0]).toBe("exec");
-    expect(args[1]).toBe("-");
+    // Codex arguments are [dirArgs, "exec", ...]
+    expect(args).toContain("exec");
+    expect(args[args.indexOf("exec") + 1]).toBe("-");
   });
 
   it("passes prompt via stdin not as a positional arg", async () => {
     await consultCodex({ prompt: "my question" });
-    const args: string[] = mockRunCli.mock.calls[0][1];
     const options = mockRunCli.mock.calls[0][2];
-    expect(args[1]).toBe("-");
     expect(options.stdin).toContain("my question");
   });
 
-  it("includes file contents in stdin", async () => {
+  it("points to files and adds their directories via --add-dir", async () => {
     const tmpFile = join(testDir, `test-${Date.now()}.txt`);
     await writeFile(tmpFile, "file content here");
 
     await consultCodex({ prompt: "Review this", files: [tmpFile] });
+    const args = mockRunCli.mock.calls[0][1];
     const options = mockRunCli.mock.calls[0][2];
-    expect(options.stdin).toContain("file content here");
+
+    expect(options.stdin).toContain("Review this");
+    expect(options.stdin).toContain(tmpFile);
+    expect(options.stdin).not.toContain("file content here");
+
+    expect(args).toContain("--add-dir");
+    expect(args).toContain(dirname(tmpFile));
 
     await unlink(tmpFile);
   });
@@ -96,7 +101,7 @@ describe("consultCodex", () => {
     const missing = join(testDir, "nonexistent.txt");
     await expect(
       consultCodex({ prompt: "test", files: [missing] })
-    ).rejects.toThrow();
+    ).rejects.toThrow("File not found");
   });
 
   it("uses no --ephemeral for a new named session", async () => {
@@ -127,10 +132,11 @@ describe("consultCodex", () => {
     // Second call: should resume using the Codex internal ID and NOT pass -C
     await consultCodex({ prompt: "Second", sessionId, directory: testDir });
     const resumeArgs: string[] = mockRunCli.mock.calls[1][1];
-    expect(resumeArgs[0]).toBe("exec");
-    expect(resumeArgs[1]).toBe("resume");
+    expect(resumeArgs).toContain("resume");
     // Should use the Codex internal ID (from session_index), not the caller's UUID
-    expect(resumeArgs[2]).toBe("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+    expect(resumeArgs[resumeArgs.indexOf("resume") + 1]).toBe(
+      "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    );
     // Verify -C is not present in the resume arguments
     expect(resumeArgs).not.toContain("-C");
   });
