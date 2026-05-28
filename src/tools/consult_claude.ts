@@ -30,10 +30,12 @@ export async function consultClaude(params: {
   sessionId?: string;
   timeoutMs?: number;
 }): Promise<{ response: string; sessionId: string }> {
-  const fileContext = await buildFileContext(params.files ?? []);
+  const { prompt: fileContextPrompt, directories } = await buildFileContext(
+    params.files ?? []
+  );
 
-  let stdinContent = fileContext
-    ? `${params.prompt}\n\n${fileContext}`
+  let stdinContent = fileContextPrompt
+    ? `${params.prompt}\n\n${fileContextPrompt}`
     : params.prompt;
 
   const bin = process.env.CLAUDE_BIN ?? "claude";
@@ -47,6 +49,8 @@ export async function consultClaude(params: {
     if (params.directory) {
       addDirs.push(await resolveDirectorySafe(params.directory));
     }
+    // Add directories from individual files
+    addDirs.push(...directories);
 
     if (params.images && tmpDir) {
       const imagePaths: string[] = [];
