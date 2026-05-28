@@ -1,9 +1,20 @@
 import { vi, describe, it, expect } from "vitest";
 import { resolvePathSafe } from "../../src/utils/file_reader.js";
+import { stat } from "fs/promises";
 
 vi.mock("../../src/utils/file_reader.js", () => ({
   resolvePathSafe: vi.fn(async (path: string) => path),
 }));
+
+vi.mock("fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("fs/promises")>();
+  return {
+    ...actual,
+    stat: vi.fn(async (path: string) => ({
+      isFile: () => true,
+    })),
+  };
+});
 
 import { buildFileContext } from "../../src/utils/prompt_builder.js";
 
@@ -26,11 +37,11 @@ describe("buildFileContext", () => {
     });
 
     const result = await buildFileContext(["a.ts", "b.ts", "c.ts"]);
-    
+
     expect(result.prompt).toContain("- /work/src/a.ts");
     expect(result.prompt).toContain("- /work/src/b.ts");
     expect(result.prompt).toContain("- /work/utils/c.ts");
-    
+
     expect(result.directories).toHaveLength(2);
     expect(result.directories).toContain("/work/src");
     expect(result.directories).toContain("/work/utils");
