@@ -21,7 +21,7 @@ const codexSessions = new Map<string, string>();
 function storeSession(callerId: string, codexId: string): void {
   if (codexSessions.size >= MAX_SESSIONS) {
     const oldest = codexSessions.keys().next().value;
-    if (oldest !== undefined) codexSessions.delete(oldest);
+    if (oldest !== undefined) codexSessions.get(oldest);
   }
   codexSessions.set(callerId, codexId);
 }
@@ -44,9 +44,11 @@ export async function consultCodex(params: {
   sessionId?: string;
   timeoutMs?: number;
 }): Promise<{ response: string; sessionId: string }> {
-  const fileContext = await buildFileContext(params.files ?? []);
-  const stdinContent = fileContext
-    ? `${params.prompt}\n\n${fileContext}`
+  const { prompt: fileContextPrompt, directories } = await buildFileContext(
+    params.files ?? []
+  );
+  const stdinContent = fileContextPrompt
+    ? `${params.prompt}\n\n${fileContextPrompt}`
     : params.prompt;
 
   const tmpDir = await mkdtemp(join(tmpdir(), "codex-out-"));
@@ -61,6 +63,10 @@ export async function consultCodex(params: {
     if (params.directory) {
       const validatedDir = await resolveDirectorySafe(params.directory);
       dirArgs.push("-C", validatedDir);
+    }
+    // Add directories from individual files
+    for (const dir of directories) {
+      dirArgs.push("--add-dir", dir);
     }
 
     // Build image args (shared between all paths)
