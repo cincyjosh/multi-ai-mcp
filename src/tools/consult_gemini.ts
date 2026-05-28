@@ -51,10 +51,12 @@ export async function consultGemini(params: {
   sessionId?: string;
   timeoutMs?: number;
 }): Promise<{ response: string; sessionId: string }> {
-  const fileContext = await buildFileContext(params.files ?? []);
+  const { prompt: fileContextPrompt, directories } = await buildFileContext(
+    params.files ?? []
+  );
 
-  const stdinContent = fileContext
-    ? `${params.prompt}\n\n${fileContext}`
+  const stdinContent = fileContextPrompt
+    ? `${params.prompt}\n\n${fileContextPrompt}`
     : params.prompt;
 
   const bin = process.env.GEMINI_BIN ?? "gemini";
@@ -63,13 +65,30 @@ export async function consultGemini(params: {
     const validatedDir = await resolveDirectorySafe(params.directory);
     dirArgs.push("--include-directories", validatedDir);
   }
-  const baseArgs = ["-p", "-", "-o", "text", "--skip-trust", "--approval-mode", "plan", ...dirArgs];
+  // Add directories from individual files
+  for (const dir of directories) {
+    dirArgs.push("--include-directories", dir);
+  }
+
+  const baseArgs = [
+    "-p",
+    "-",
+    "-o",
+    "text",
+    "--skip-trust",
+    "--approval-mode",
+    "plan",
+    ...dirArgs,
+  ];
 
   const timeoutMs = params.timeoutMs ?? (params.directory ? 600_000 : 300_000);
 
   let response: string;
   if (params.sessionId) {
-    response = await runGeminiWithSession(bin, baseArgs, params.sessionId, { stdin: stdinContent, timeoutMs });
+    response = await runGeminiWithSession(bin, baseArgs, params.sessionId, {
+      stdin: stdinContent,
+      timeoutMs,
+    });
   } else {
     const res = await runCli(bin, baseArgs, { stdin: stdinContent, timeoutMs });
     response = res.stdout;
