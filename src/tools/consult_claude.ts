@@ -81,7 +81,7 @@ export async function consultClaude(params: {
       finalArgs.push("--add-dir", ...addDirs);
     }
 
-    const timeoutMs = params.timeoutMs ?? (params.directory ? 600_000 : 300_000);
+    const timeoutMs = params.timeoutMs ?? (params.directory || directories.length > 0 ? 600_000 : 300_000);
     let response: string;
 
     if (params.sessionId) {

@@ -21,7 +21,7 @@ const codexSessions = new Map<string, string>();
 function storeSession(callerId: string, codexId: string): void {
   if (codexSessions.size >= MAX_SESSIONS) {
     const oldest = codexSessions.keys().next().value;
-    if (oldest !== undefined) codexSessions.get(oldest);
+    if (oldest !== undefined) codexSessions.delete(oldest);
   }
   codexSessions.set(callerId, codexId);
 }
@@ -91,7 +91,7 @@ export async function consultCodex(params: {
       }
     }
 
-    const timeoutMs = params.timeoutMs ?? (params.directory ? 600_000 : 300_000);
+    const timeoutMs = params.timeoutMs ?? (params.directory || directories.length > 0 ? 600_000 : 300_000);
 
     if (params.sessionId) {
       const existingCodexId = codexSessions.get(params.sessionId);
