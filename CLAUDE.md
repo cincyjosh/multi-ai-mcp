@@ -54,7 +54,7 @@ Two layers in `src/index.ts`:
 | `CLAUDE_BIN` | `claude` | Path to the Claude Code CLI |
 | `CODEX_BIN` | `codex` | Path to the Codex CLI |
 | `ANTIGRAVITY_BIN` / `AGY_BIN` | `agy` | Path to the Antigravity CLI |
-| `GEMINI_BIN` | `gemini` | Path to the Gemini CLI (fallback) |
+| `GEMINI_BIN` | `gemini` | Path to the Gemini CLI **(deprecated fallback; prefer `ANTIGRAVITY_BIN`)** |
 | `MCP_WORKSPACE_ROOT` | `process.cwd()` | Root for path traversal checks |
 | `CODEX_HOME` | `~/.codex` | Codex session index location |
 
@@ -68,7 +68,7 @@ All three disabled at once causes the server to exit immediately.
 
 ## Registering the Server
 
-Example for Antigravity CLI (in `~/.gemini/settings.json`):
+Example for Antigravity CLI (agy stores its config at `~/.gemini/settings.json`):
 ```json
 "multi-ai-mcp": {
   "command": "npx",
@@ -79,4 +79,4 @@ Example for Antigravity CLI (in `~/.gemini/settings.json`):
 
 ## Testing Conventions
 
-Tests mock `runCli` via `vi.hoisted` + `vi.mock` to avoid spawning real CLI processes. Each tool test creates files under a dedicated temp dir (e.g., `.mcp-test-tmp-gemini/`) using `process.cwd()` as the workspace root so path validation passes.
+Tests mock `runCli` via `vi.hoisted` + `vi.mock` to avoid spawning real CLI processes. Each tool test creates files under a dedicated temp dir (e.g., `.mcp-test-tmp-antigravity/`) using `process.cwd()` as the workspace root so path validation passes.

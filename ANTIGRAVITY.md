@@ -39,7 +39,7 @@ A TypeScript-based Model Context Protocol (MCP) server that provides tools to co
 - **File Naming:** Lowercase `snake_case` (e.g., `file_reader.ts`).
 - **Exports:** Descriptive `camelCase` (e.g., `export function readFileContent`).
 - **Validation:** Always use Zod for validating external inputs (like tool arguments).
-- **Concurrency:** 
+- **Concurrency:**
     - A global semaphore limits the server to 3 simultaneous CLI calls to prevent system exhaustion.
     - Per-session mutexes ensure that requests for the same `sessionId` are processed sequentially to maintain conversation integrity for `consult_antigravity` and other tools.
 - **Security:**

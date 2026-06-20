@@ -39,7 +39,7 @@ The `gemini` CLI is cut over to the `agy` CLI. The CLI options map as follows:
   ```typescript
   const baseArgs = ["-p", "-", "--dangerously-skip-permissions"];
   ```
-* **Directory & Files Arguments:** 
+* **Directory & Files Arguments:**
   * Add the primary directory using `--add-dir` (if `params.directory` is provided).
   * Add the individual file parent directories via the loop on the resolved `directories` using `--add-dir`.
 * **Session Arguments:** If `sessionId` is provided, append `["--conversation", sessionId]`.
@@ -54,7 +54,7 @@ The `gemini` CLI is cut over to the `agy` CLI. The CLI options map as follows:
 * **Flag Handling:** Determine `disableAntigravity` (if `--disable-antigravity` or `--disable-gemini` is passed).
 * **All-Disabled Guard:** Update the guard to check `disableCodex && disableAntigravity && disableClaude` to ensure the server exits correctly if all tools are disabled.
 * **Schemas:** Define `ConsultAntigravitySchema` (same structure as Codex/Claude: `prompt`, `directory`, `files`, `sessionId`, `timeoutMs`). `ConsultGeminiSchema` remains an alias.
-* **Tool Definitions:** 
+* **Tool Definitions:**
   * Expose both `consult_antigravity` and `consult_gemini`.
   * Update `geminiToolDef` description to explicitly prepend: `"[DEPRECATED] — Use consult_antigravity instead. Send a prompt to Google Gemini..."`
 * **Handler Mapping:** Map `consult_antigravity` and `consult_gemini` to their respective tool runners in `src/tools/consult_antigravity.ts`.
@@ -68,4 +68,3 @@ The `gemini` CLI is cut over to the `agy` CLI. The CLI options map as follows:
 ## 3. Documentation & Rules
 * Rename `GEMINI.md` to `ANTIGRAVITY.md` (and update all inner references to `gemini` to `antigravity` or `agy`).
 * Update references in `README.md`, `AGENTS.md`, and `CLAUDE.md`.
-

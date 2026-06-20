@@ -6,7 +6,7 @@
 
 - `consult_codex`: calls the `codex` CLI. Supports `prompt`, `files`, `images`, `directory`, and `sessionId`.
 - `consult_antigravity`: calls the `agy` CLI. Supports `prompt`, `files`, `directory`, and `sessionId`.
-- `consult_gemini` (deprecated): calls the `gemini` CLI. Supports `prompt`, `files`, `directory`, and `sessionId`.
+- `consult_gemini` (deprecated): compatibility alias for `consult_antigravity`. Supports `prompt`, `files`, `directory`, and `sessionId`.
 - `consult_claude`: calls the `claude` CLI. Supports `prompt`, `files`, `images`, `directory`, and `sessionId`.
 
 All tools validate inputs with Zod. File and image paths are resolved through the repository's safe file readers before being passed to a CLI. Supplying `sessionId` lets the server continue a named conversation where the underlying CLI supports it.
@@ -51,7 +51,7 @@ node dist/index.js --disable-antigravity
 node dist/index.js --disable-claude
 ```
 
-The server exits if all three tools are disabled.
+The server exits if all three primary tools are disabled. Disabling Antigravity also disables the deprecated `consult_gemini` alias.
 
 ## MCP Client Registration
 

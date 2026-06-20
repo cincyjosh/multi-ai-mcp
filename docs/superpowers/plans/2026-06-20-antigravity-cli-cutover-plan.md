@@ -4,7 +4,7 @@
 
 **Goal:** Refactor the codebase to replace legacy `gemini` CLI subprocess logic with `antigravity` (`agy`) CLI logic, expose a new `consult_antigravity` tool, and keep `consult_gemini` as a deprecated wrapper tool.
 
-**Architecture:** 
+**Architecture:**
 1. Create `src/tools/consult_antigravity.ts` to execute `agy -p - --dangerously-skip-permissions` with directories resolved to `--add-dir` and session resolved to `--conversation`.
 2. Clean up legacy `consult_gemini.ts` files, making `consult_gemini` a deprecated proxy in the new module.
 3. Update registration, schemas, documentation, and the tests.
