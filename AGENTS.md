@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-This repository is a TypeScript MCP server for consulting multiple AI CLIs. Source code lives in `src/`: `src/index.ts` wires the server together, `src/tools/` contains tool implementations such as `consult_codex.ts` and `consult_gemini.ts`, and `src/utils/` contains shared helpers for CLI execution, prompt construction, and file reading. Tests mirror the source layout under `tests/tools/` and `tests/utils/`. Built JavaScript is emitted to `dist/`; treat it as generated output from `npm run build`.
+This repository is a TypeScript MCP server for consulting multiple AI CLIs. Source code lives in `src/`: `src/index.ts` wires the server together, `src/tools/` contains tool implementations such as `consult_codex.ts` and `consult_antigravity.ts`, and `src/utils/` contains shared helpers for CLI execution, prompt construction, and file reading. Tests mirror the source layout under `tests/tools/` and `tests/utils/`. Built JavaScript is emitted to `dist/`; treat it as generated output from `npm run build`.
 
 ## Build, Test, and Development Commands
 

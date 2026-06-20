@@ -4,7 +4,6 @@ dist/
 .mcp-test-tmp*/
 .claude/
 CLAUDE.md
-GEMINI.md
 
 .DS_Store
 npm-debug.log*
