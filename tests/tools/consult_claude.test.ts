@@ -127,4 +127,14 @@ describe("consultClaude", () => {
     await consultClaude({ prompt: "Hello", directory: testDir });
     expect(mockRunCli.mock.calls[1][2].timeoutMs).toBe(600_000);
   });
+
+  it("uses extended timeout when files parameter is provided (no directory)", async () => {
+    const tmpFile = join(testDir, `test-${Date.now()}.txt`);
+    await writeFile(tmpFile, "content");
+
+    await consultClaude({ prompt: "Hello", files: [tmpFile] });
+    expect(mockRunCli.mock.calls[0][2].timeoutMs).toBe(600_000);
+
+    await unlink(tmpFile);
+  });
 });

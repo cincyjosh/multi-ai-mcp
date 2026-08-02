@@ -7,7 +7,7 @@ import {
 import { z } from "zod";
 import { consultClaude } from "./tools/consult_claude.js";
 import { consultCodex } from "./tools/consult_codex.js";
-import { consultGemini } from "./tools/consult_gemini.js";
+import { consultAntigravity, consultGemini } from "./tools/consult_antigravity.js";
 
 // --- Concurrency semaphore (max 3 simultaneous CLI calls, max 10 queued) ---
 class Semaphore {
@@ -95,10 +95,12 @@ async function withSessionLock<T>(
 
 // --- CLI flags ---
 const disableCodex = process.argv.includes("--disable-codex");
-const disableGemini = process.argv.includes("--disable-gemini");
+const disableGeminiFlag = process.argv.includes("--disable-gemini");
+const disableAntigravityFlag = process.argv.includes("--disable-antigravity");
+const disableAntigravity = disableGeminiFlag || disableAntigravityFlag;
 const disableClaude = process.argv.includes("--disable-claude");
 
-if (disableCodex && disableGemini && disableClaude) {
+if (disableCodex && disableAntigravity && disableClaude) {
   console.error("[multi-ai-mcp] All tools disabled — nothing to serve. Exiting.");
   process.exit(1);
 }
@@ -118,7 +120,7 @@ const ConsultCodexSchema = z.object({
   path: ["files"],
 });
 
-const ConsultGeminiSchema = z.object({
+const ConsultAntigravitySchema = z.object({
   prompt: z.string().min(1).max(100_000),
   directory: z.string().min(1).max(4096).optional(),
   files: z.array(z.string().min(1).max(4096)).max(MAX_FILES).optional(),
@@ -128,6 +130,8 @@ const ConsultGeminiSchema = z.object({
   message: "Provide 'directory' or 'files', not both. Prefer 'directory' for codebase tasks.",
   path: ["files"],
 });
+
+const ConsultGeminiSchema = ConsultAntigravitySchema;
 
 const ConsultClaudeSchema = z.object({
   prompt: z.string().min(1).max(100_000),
@@ -167,10 +171,29 @@ const codexToolDef = {
   },
 };
 
+const antigravityToolDef = {
+  name: "consult_antigravity",
+  description:
+    "Send a prompt to Antigravity (agy). ALWAYS prefer 'directory' for codebase-wide tasks or repository reviews. Use 'files' only for specific, surgical context (max 5 files). The response includes a [Session ID: ...] footer when a session is active — pass that UUID back as sessionId on the next call to continue the conversation.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      prompt: { type: "string", minLength: 1, maxLength: 100_000, description: "The question or request" },
+      directory: { type: "string", minLength: 1, maxLength: 4096, description: "The root directory of the project. ALWAYS prefer this for codebase-wide tasks, repository reviews, or when you need to navigate multiple files. The agent will browse and index the directory itself." },
+      files: { type: "array", items: { type: "string", minLength: 1, maxLength: 4096 }, maxItems: MAX_FILES, description: `Small set of specific files for surgical context. DO NOT use for broad codebase tasks. Max ${MAX_FILES} files. Do NOT include files already accessible via 'directory'.` },
+      sessionId: { type: "string", format: "uuid", description: "UUID to identify a conversation. Reuse across calls to maintain context; omit or use a new UUID to start fresh." },
+      timeoutMs: { type: "integer", minimum: 1, maximum: 3600_000, description: "Optional custom timeout in milliseconds for the CLI call (default: 300s, or 600s for codebase tasks)." },
+    },
+    required: ["prompt"],
+    not: { required: ["directory", "files"] },
+    additionalProperties: false,
+  },
+};
+
 const geminiToolDef = {
   name: "consult_gemini",
   description:
-    "Send a prompt to Google Gemini. ALWAYS prefer 'directory' for codebase-wide tasks or repository reviews. Use 'files' only for specific, surgical context (max 5 files). The response includes a [Session ID: ...] footer when a session is active — pass that UUID back as sessionId on the next call to continue the conversation.",
+    "[DEPRECATED] — Use consult_antigravity instead. Send a prompt to Google Gemini. ALWAYS prefer 'directory' for codebase-wide tasks or repository reviews. Use 'files' only for specific, surgical context (max 5 files). The response includes a [Session ID: ...] footer when a session is active — pass that UUID back as sessionId on the next call to continue the conversation.",
   inputSchema: {
     type: "object",
     properties: {
@@ -209,7 +232,7 @@ const claudeToolDef = {
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
   tools: [
     ...(!disableCodex ? [codexToolDef] : []),
-    ...(!disableGemini ? [geminiToolDef] : []),
+    ...(!disableAntigravity ? [antigravityToolDef, geminiToolDef] : []),
     ...(!disableClaude ? [claudeToolDef] : []),
   ],
 }));
@@ -275,8 +298,41 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           : responseText;
         return { content: [{ type: "text", text: finalContent }] };
       }
+      case "consult_antigravity": {
+        if (disableAntigravity) {
+          return { content: [{ type: "text", text: "consult_antigravity is disabled" }], isError: true };
+        }
+        const parsed = ConsultAntigravitySchema.safeParse(args);
+        if (!parsed.success) {
+          const errorMsg = parsed.error.issues
+            .map((i) => `${i.path.join(".")}: ${i.message}`)
+            .join("; ");
+          return {
+            content: [{ type: "text", text: `Invalid arguments: ${errorMsg}` }],
+            isError: true,
+          };
+        }
+        const result = await withSessionLock(parsed.data.sessionId, () =>
+          withSemaphore(async () => {
+            const ping = startProgressPing(progressToken, (n) => server.notification(n as any));
+            try {
+              return await consultAntigravity(parsed.data);
+            } finally {
+              clearInterval(ping);
+            }
+          })
+        );
+        let responseText = result.response;
+        if ((parsed.data.files?.length ?? 0) >= 2 && !parsed.data.directory) {
+          responseText += DIRECTORY_HINT;
+        }
+        const finalContent = result.sessionId
+          ? `${responseText}\n\n[Session ID: ${result.sessionId}]`
+          : responseText;
+        return { content: [{ type: "text", text: finalContent }] };
+      }
       case "consult_gemini": {
-        if (disableGemini) {
+        if (disableAntigravity) {
           return { content: [{ type: "text", text: "consult_gemini is disabled" }], isError: true };
         }
         const parsed = ConsultGeminiSchema.safeParse(args);

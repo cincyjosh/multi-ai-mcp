@@ -1,6 +1,6 @@
-import { resolvePathSafe } from "./file_reader.js";
+import { resolvePathSafe, O_NOFOLLOW } from "./file_reader.js";
 import { dirname } from "path";
-import { stat } from "fs/promises";
+import { open, constants } from "fs/promises";
 
 export interface FileContext {
   prompt: string;
@@ -12,19 +12,26 @@ export async function buildFileContext(files: string[]): Promise<FileContext> {
 
   const resolvedPaths = await Promise.all(files.map((f) => resolvePathSafe(f)));
 
-  // Verify all files exist
+  // Verify all files exist and are regular files.
+  // O_NOFOLLOW closes the TOCTOU window: if the path is replaced with a symlink
+  // between resolvePathSafe's realpath check and this open(), the open fails.
   await Promise.all(
     resolvedPaths.map(async (p, i) => {
+      let fd: Awaited<ReturnType<typeof open>>;
       try {
-        const info = await stat(p);
-        if (!info.isFile()) {
-          throw new Error(`Not a regular file: ${files[i]}`);
-        }
+        fd = await open(p, constants.O_RDONLY | O_NOFOLLOW);
       } catch (err: any) {
-        if (err.code === "ENOENT") {
-          throw new Error(`File not found: ${files[i]}`);
+        if (err.code === "ENOENT") throw new Error(`File not found: ${files[i]}`);
+        if (err.code === "ELOOP" || err.code === "ENOTSUP") {
+          throw new Error(`File is a symlink: ${files[i]}`);
         }
         throw err;
+      }
+      try {
+        const info = await fd.stat();
+        if (!info.isFile()) throw new Error(`Not a regular file: ${files[i]}`);
+      } finally {
+        await fd.close();
       }
     })
   );
