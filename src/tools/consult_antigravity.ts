@@ -29,7 +29,7 @@ export async function consultAntigravity(params: {
 
   const baseArgs = [
     "-p",
-    "-",
+    stdinContent,
     "--dangerously-skip-permissions",
     ...dirArgs,
   ];

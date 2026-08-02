@@ -16,19 +16,18 @@ describe("consultAntigravity & consultGemini", () => {
     mockRunCli.mockResolvedValue({ stdout: "agy response", stderr: "" });
   });
 
-  it("returns stdout as the response for consultAntigravity", async () => {
+  it("calls agy with the prompt passed to the -p flag", async () => {
     const result = await consultAntigravity({ prompt: "Hello" });
     expect(result.response).toBe("agy response");
   });
 
-  it("calls agy with -p -, and passes the prompt via stdin", async () => {
+  it("calls agy with -p <prompt>", async () => {
     await consultAntigravity({ prompt: "Hello" });
-    const [cmd, args, options] = mockRunCli.mock.calls[0];
+    const [cmd, args] = mockRunCli.mock.calls[0];
     expect(cmd).toBe("agy");
     expect(args).toContain("-p");
-    expect(args[args.indexOf("-p") + 1]).toBe("-");
+    expect(args[args.indexOf("-p") + 1]).toBe("Hello");
     expect(args).toContain("--dangerously-skip-permissions");
-    expect(options.stdin).toBe("Hello");
   });
 
   it("points to files and adds their directories via --add-dir", async () => {
@@ -37,10 +36,9 @@ describe("consultAntigravity & consultGemini", () => {
 
     await consultAntigravity({ prompt: "Review this", files: [tmpFile] });
     const args = mockRunCli.mock.calls[0][1];
-    const options = mockRunCli.mock.calls[0][2];
 
-    expect(options.stdin).toContain("Review this");
-    expect(options.stdin).toContain(tmpFile);
+    expect(args[args.indexOf("-p") + 1]).toContain("Review this");
+    expect(args[args.indexOf("-p") + 1]).toContain(tmpFile);
     expect(args).toContain("--add-dir");
     expect(args).toContain(dirname(tmpFile));
 
